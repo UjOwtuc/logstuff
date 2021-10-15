@@ -1,0 +1,8 @@
+/target
+*/target
+cobertura.xml
+Cargo.lock
+
+qstuff/.kdev4/
+qstuff/build/
+qstuff/qstuff.kdev4

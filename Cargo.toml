@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+	"logstuff",
+	"stufftail",
+	"stuffweb",
+]

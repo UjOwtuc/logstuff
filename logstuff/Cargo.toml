@@ -1,0 +1,29 @@
+[package]
+name = "logstuff"
+version = "0.1.0"
+edition = "2018"
+
+[[bin]]
+name = "logstuff"
+path = "src/bin/logstuff.rs"
+
+[[bin]]
+name = "querytest"
+path = "src/bin/querytest.rs"
+
+[lib]
+name = "logstuff"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = "1.0"
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+void = "1.0"
+postgres = { version = "0.19", features = ["with-chrono-0_4", "with-serde_json-1"] }
+postgres-native-tls = "0.5"
+native-tls = "0.2"
+pest = "2"
+pest_derive = "2"
+
