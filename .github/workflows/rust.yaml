@@ -15,9 +15,22 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: Cache
+        uses: actions/cache@v2
+        path: |-
+          ~/.cargo
+          target
+          */target
+
       - name: Build
         run: cargo build --verbose
 
       - name: Run tests
         uses: actions-rs/tarpaulin@v0.1
+
+      - name: Coverage
+        uses: actions/upload-artifact@v2
+        with:
+          name: cobertura.xml
+          path: cobertura.xml
 
