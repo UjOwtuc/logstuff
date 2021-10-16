@@ -1,0 +1,43 @@
+# vim: set ft=yaml sw=2 ts=2 et :
+
+image: ${RUST_IMAGE}
+
+stages:
+  - build
+  - test
+  - deploy
+
+cache:
+  paths:
+    - target/
+    - Cargo.lock
+    - .ccache
+
+build:cargo:
+  stage: build
+  script:
+    - rustc --version && cargo --version
+    - cargo build --release
+  artifacts:
+    paths:
+      - target/release/logstuff
+      - target/release/querytest
+      - target/release/stufftail
+      - target/release/stuffweb
+
+test:audit:
+  stage: test
+  script:
+    - cargo audit
+
+test:tarpaulin:
+  stage: test
+  tags:
+    - docker
+  script:
+    - cargo tarpaulin --verbose --out Xml
+  coverage: '/^\d+.\d+% coverage,/'
+  artifacts:
+    reports:
+      cobertura: cobertura.xml
+
