@@ -18,6 +18,7 @@ jobs:
       - name: Cache
         uses: actions/cache@v2
         with:
+          key: ${{ runner.os }}-cargo
           path: |-
             ~/.cargo
             target
