@@ -59,7 +59,8 @@ pub fn parse_query(query: &str) -> Result<(String, QueryParams), Box<dyn Error>>
     // log::debug!("parse {:?}:", query);
     let mut pairs = QueryParser::parse(Rule::bool_expr, query)?;
     let climber = PrecClimber::new(vec![
-        Operator::new(Rule::and_op, Assoc::Left) | Operator::new(Rule::or_op, Assoc::Left),
+        Operator::new(Rule::or_op, Assoc::Left),
+        Operator::new(Rule::and_op, Assoc::Left),
     ]);
     let ast = consume(pairs.next().unwrap(), &climber);
     walk_tree(ast, 1)
@@ -101,7 +102,7 @@ fn format_operand(operand: Value, param_offset: usize, numeric: bool) -> (String
             let expr = if numeric {
                 format!("try_to_int(doc ->> ${})", param_offset)
             } else {
-                format!("doc ->>${}", param_offset)
+                format!("doc ->> ${}", param_offset)
             };
             (expr, vec![Box::new(id)])
         }
@@ -192,5 +193,83 @@ fn walk_tree(
             };
             Ok((expr, params))
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn whole_queries() {
+        for (query, expression, param_count) in &[
+            ("id = \"value\"", "doc ->> $1 = $2", 2),
+            ("id != \"value\"", "doc ->> $1 != $2", 2),
+            ("id < 123", "try_to_int(doc ->> $1) < try_to_int($2)", 2),
+            ("id <= 1.23", "try_to_int(doc ->> $1) <= try_to_int($2)", 2),
+            ("id > 123", "try_to_int(doc ->> $1) > try_to_int($2)", 2),
+            ("id >= 123", "try_to_int(doc ->> $1) >= try_to_int($2)", 2),
+            ("id like \"value\"", "doc ->> $1 LIKE $2", 2),
+            ("id not like \"value\"", "NOT doc ->> $1 LIKE $2", 2),
+            ("id in (\"a\", \"b\")", "doc ->> $1 IN ($2, $3)", 3),
+            ("id in (1, 2, 3)", "doc ->> $1 IN ($2, $3, $4)", 4),
+            ("id not in (1)", "NOT doc ->> $1 IN ($2)", 2),
+            ("id.with.dots = 1", "doc ->> $1 = $2", 2),
+            (
+                "id = 1 and id = 1",
+                "(doc ->> $1 = $2 AND doc ->> $3 = $4)",
+                4,
+            ),
+            (
+                "id = 1 or id = 2",
+                "(doc ->> $1 = $2 OR doc ->> $3 = $4)",
+                4,
+            ),
+            (
+                "(id = 1 or id = 2) and (id2 = 1 or id2 = 2)",
+                "((doc ->> $1 = $2 OR doc ->> $3 = $4) AND (doc ->> $5 = $6 OR doc ->> $7 = $8))",
+                8,
+            ),
+            (
+                "id = 1 or id = 2 and id2 = 1 or id2 = 2",
+                "((doc ->> $1 = $2 OR (doc ->> $3 = $4 AND doc ->> $5 = $6)) OR doc ->> $7 = $8)",
+                8,
+            ),
+        ] {
+            let (expr, params) = parse_query(query).unwrap();
+            assert_eq!(expr, *expression);
+            assert_eq!(params.len(), *param_count);
+        }
+    }
+
+    #[test]
+    fn operand_formatting() {
+        let (expr, params) = format_operand(Value::Identifier("id".into()), 3, false);
+        assert_eq!(expr, "doc ->> $3");
+        assert_eq!(params.len(), 1);
+
+        let (expr, params) = format_operand(Value::Identifier("id".into()), 2, true);
+        assert_eq!(expr, "try_to_int(doc ->> $2)");
+        assert_eq!(params.len(), 1);
+
+        let (expr, params) = format_operand(Value::Scalar("scalar".into()), 1, false);
+        assert_eq!(expr, "$1");
+        assert_eq!(params.len(), 1);
+
+        let (expr, params) = format_operand(Value::Scalar("scalar".into()), 0, true);
+        assert_eq!(expr, "try_to_int($0)");
+        assert_eq!(params.len(), 1);
+
+        let (expr, params) = format_operand(Value::List(vec!["a".into(), "b".into()]), 33, false);
+        assert_eq!(expr, "($33, $34)");
+        assert_eq!(params.len(), 2);
+
+        let (expr, params) = format_operand(
+            Value::List(vec!["a".into(), "b".into(), "c".into()]),
+            40,
+            true,
+        );
+        assert_eq!(expr, "($40, $41, $42)");
+        assert_eq!(params.len(), 3);
     }
 }

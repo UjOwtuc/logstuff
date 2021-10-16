@@ -12,7 +12,7 @@ paren_bool = { "(" ~ expr ~  ")" }
 comp_expr = { field ~ op ~ value }
 
 field = @{ (ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "-" | "_" | ".")*) }
-op = { eq | neq | op_in | op_not_in | gt | gte | lt | lte | like | not_like }
+op = { eq | neq | op_in | op_not_in | gte | gt | lte | lt | like | not_like }
 eq = { "=" }
 neq = { "!=" | "<>"}
 op_in = { "in" }

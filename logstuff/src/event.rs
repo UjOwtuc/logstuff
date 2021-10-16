@@ -335,7 +335,6 @@ impl From<RsyslogdEvent> for Event {
             flatten_value(&vars, &mut doc, "vars".to_string(), ".");
         }
 
-        //"message_variables": event.message_variables,
         Event {
             timestamp: event.timereported,
             doc,
