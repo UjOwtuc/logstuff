@@ -17,10 +17,11 @@ jobs:
 
       - name: Cache
         uses: actions/cache@v2
-        path: |-
-          ~/.cargo
-          target
-          */target
+        with:
+          path: |-
+            ~/.cargo
+            target
+            */target
 
       - name: Build
         run: cargo build --verbose
