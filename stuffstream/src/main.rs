@@ -153,22 +153,22 @@ async fn fetch_events(
         expr
     );
 
-    let query = transaction
-        .query_raw(
-            format!(
-                r#"
+    let full_query = format!(
+        r#"
                 select fields.doc || events.doc || counts.doc as doc
                 from
                 (select jsonb_build_object('fields', jsonb_object_agg(key, values)) as doc from ({}) f) fields,
                 (select jsonb_build_object('events', jsonb_agg(doc)) as doc from ({}) e) events,
                 (select jsonb_build_object('counts', jsonb_object_agg(dt, count)) as doc from ({}) c) counts
             "#,
-                fields_query, events_query, counts_query
-            )
-            .as_str(),
+        fields_query, events_query, counts_query
+    );
+
+    let query = transaction
+        .query_raw(
+            full_query.as_str(),
             query_params
                 .iter()
-                .chain(query_params.iter())
                 .map(|e| e as &(dyn ToSql + Sync))
                 .chain(our_params.iter().map(|e| e as &(dyn ToSql + Sync)))
                 .collect::<Vec<&(dyn ToSql + Sync)>>(),
