@@ -1,7 +1,6 @@
 use pest::iterators::Pair;
 use pest::prec_climber::{Assoc, Operator, PrecClimber};
 use pest::Parser;
-use postgres::types::ToSql;
 use std::error::Error;
 
 #[derive(Parser)]
@@ -53,17 +52,20 @@ enum Expression {
     Or(Box<Expression>, Box<Expression>),
 }
 
-pub type QueryParams = Vec<Box<dyn ToSql + Sync>>;
+pub type QueryParams = Vec<String>;
 
 pub fn parse_query(query: &str) -> Result<(String, QueryParams), Box<dyn Error>> {
-    // log::debug!("parse {:?}:", query);
-    let mut pairs = QueryParser::parse(Rule::bool_expr, query)?;
-    let climber = PrecClimber::new(vec![
-        Operator::new(Rule::or_op, Assoc::Left),
-        Operator::new(Rule::and_op, Assoc::Left),
-    ]);
-    let ast = consume(pairs.next().unwrap(), &climber);
-    walk_tree(ast, 1)
+    if !query.is_empty() {
+        let mut pairs = QueryParser::parse(Rule::bool_expr, query)?;
+        let climber = PrecClimber::new(vec![
+            Operator::new(Rule::or_op, Assoc::Left),
+            Operator::new(Rule::and_op, Assoc::Left),
+        ]);
+        let ast = consume(pairs.next().unwrap(), &climber);
+        walk_tree(ast, 1)
+    } else {
+        Ok(("1 = 1".to_string(), QueryParams::new()))
+    }
 }
 
 fn consume(pair: Pair<Rule>, climber: &PrecClimber<Rule>) -> Expression {
@@ -104,7 +106,7 @@ fn format_operand(operand: Value, param_offset: usize, numeric: bool) -> (String
             } else {
                 format!("doc ->> ${}", param_offset)
             };
-            (expr, vec![Box::new(id)])
+            (expr, vec![id])
         }
         Value::Scalar(value) => {
             let expr = if numeric {
@@ -112,7 +114,7 @@ fn format_operand(operand: Value, param_offset: usize, numeric: bool) -> (String
             } else {
                 format!("${}", param_offset)
             };
-            (expr, vec![Box::new(value)])
+            (expr, vec![value])
         }
         Value::List(list) => {
             let mut param_num = param_offset;
@@ -121,7 +123,7 @@ fn format_operand(operand: Value, param_offset: usize, numeric: bool) -> (String
             list.iter().for_each(|e| {
                 expr.push(format!("${}", param_num));
                 param_num += 1;
-                params.push(Box::new(e.to_owned()));
+                params.push(e.to_owned());
             });
             (format!("({})", expr.join(", ")), params)
         }
