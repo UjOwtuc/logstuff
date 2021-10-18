@@ -158,7 +158,7 @@ fn prepare_query<'a>(
     let our_params = settings
         .query_params
         .iter()
-        .map(|e| e.as_ref())
+        .map(|e| e as &(dyn ToSql + Sync))
         .collect::<Vec<&(dyn ToSql + Sync)>>();
 
     let stmt = client.prepare(query.as_str()).unwrap();
