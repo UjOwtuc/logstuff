@@ -137,9 +137,8 @@ async fn fetch_events(
         r#"
         select date_trunc('{}', dd) as dt, count(l) as count
         from generate_series(${}, ${}, '1 {}'::interval) dd
-        left join {} l
+        left join (select tstamp from {} where {}) l
         on date_trunc('{}', dd) = date_trunc('{}', l.tstamp)
-        where {}
         group by dd
         order by dd
         "#,
@@ -148,9 +147,9 @@ async fn fetch_events(
         next_param_id + 1,
         trunc,
         table,
+        expr,
         trunc,
         trunc,
-        expr
     );
 
     let full_query = format!(
