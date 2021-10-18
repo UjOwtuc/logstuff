@@ -1,0 +1,16 @@
+[package]
+name = "stuffstream"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+logstuff = { path = "../logstuff" }
+futures = "0.3"
+warp = "0.3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_derive = "1"
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+bb8-postgres = "0.7"
+
