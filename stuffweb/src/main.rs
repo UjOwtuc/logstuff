@@ -1,5 +1,7 @@
 use chrono::{DateTime, Duration, FixedOffset, Utc};
+use log::debug;
 use logstuff::query::parse_query;
+use postgres::fallible_iterator::FallibleIterator;
 use postgres::types::ToSql;
 use rouille::{Request, Response};
 use serde_derive::Serialize;
@@ -9,6 +11,32 @@ use std::sync::{Arc, Mutex};
 
 type TopValues = HashMap<String, i32>;
 
+struct TimingLogger {
+    name: String,
+    start_time: DateTime<Utc>,
+}
+
+impl TimingLogger {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            start_time: Utc::now(),
+        }
+    }
+}
+
+impl Drop for TimingLogger {
+    fn drop(&mut self) {
+        println!(
+            "{} took {} ms",
+            self.name,
+            Utc::now()
+                .signed_duration_since(self.start_time)
+                .num_milliseconds()
+        );
+    }
+}
+
 #[derive(Serialize)]
 struct EventsReply {
     fields: HashMap<String, TopValues>,
@@ -17,11 +45,12 @@ struct EventsReply {
 }
 
 fn top_fields(
-    conn: &mut postgres::Client,
+    conn: &mut impl postgres::GenericClient,
     expr: &str,
     params: &[&(dyn ToSql + Sync)],
     table: &str,
 ) -> Result<HashMap<String, TopValues>, Box<dyn Error>> {
+    let _timer = TimingLogger::new("top_fields");
     let top_fields = conn.query(
         format!(
             r#"
@@ -70,23 +99,31 @@ fn top_fields(
 }
 
 fn events(
-    conn: &mut postgres::Client,
+    conn: &mut impl postgres::GenericClient,
     expr: &str,
     params: &[&(dyn ToSql + Sync)],
     table: &str,
 ) -> Result<Vec<serde_json::Value>, Box<dyn Error>> {
-    let events = conn.query(format!("select id, jsonb_build_object('timestamp', tstamp, 'id', id, 'source', doc) as doc from {} where {} order by tstamp desc", table, expr).as_str(), params)?;
-    Ok(events.iter().map(|row| row.get("doc")).collect())
+    let _timer = TimingLogger::new("events");
+    let query_timer = TimingLogger::new("events query");
+    let mut events = conn.query_raw(format!("select id, jsonb_build_object('timestamp', tstamp, 'id', id, 'source', doc) as doc from {} where {} order by tstamp desc", table, expr).as_str(), Vec::from(params))?;
+    drop(query_timer);
+    let mut result = Vec::new();
+    while let Some(row) = events.next()? {
+        result.push(row.get("doc"));
+    }
+    Ok(result)
 }
 
 fn counts(
-    conn: &mut postgres::Client,
+    conn: &mut impl postgres::GenericClient,
     start: &DateTime<FixedOffset>,
     end: &DateTime<FixedOffset>,
     expr: &str,
     query_params: &[&(dyn ToSql + Sync)],
     table: &str,
 ) -> Result<HashMap<DateTime<Utc>, i64>, Box<dyn Error>> {
+    let _timer = TimingLogger::new("count");
     let next_param_id = query_params.len() + 1;
     let mut our_params = Vec::from(query_params);
     our_params.push(&start);
@@ -102,7 +139,7 @@ fn counts(
     } else {
         "day"
     };
-    println!("counts scale: {}", trunc);
+    debug!("counts scale: {}", trunc);
 
     let counts = conn.query(format!("select date_trunc('{}', dd) as t, count(l) as count from generate_series(${}, ${}, '1 {}'::interval) dd left join {} l on date_trunc('{}', dd) = date_trunc('{}', l.tstamp) where {} group by dd order by dd",
     trunc, next_param_id, next_param_id +1, trunc, table, trunc, trunc, expr).as_str(), &our_params)?;
@@ -205,15 +242,20 @@ fn handle_request(
         ("1 = 1".to_string(), Vec::new())
     };
 
+    let mut transaction = conn
+        .build_transaction()
+        .isolation_level(postgres::IsolationLevel::RepeatableRead)
+        .start()
+        .map_err(|e| ErrorReply::new(500, format!("Could not start transaction: {:?}", e)))?;
     let ref_params = query_params
         .iter()
-        .map(|e| e.as_ref())
+        .map(|e| e as &(dyn ToSql + Sync))
         .collect::<Vec<&(dyn ToSql + Sync)>>();
     Ok(EventsReply {
-        fields: top_fields(&mut conn, &expr, &ref_params, "tail")?,
-        events: events(&mut conn, &expr, &ref_params, "tail")?,
+        fields: top_fields(&mut transaction, &expr, &ref_params, "tail")?,
+        events: events(&mut transaction, &expr, &ref_params, "tail")?,
         counts: counts(
-            &mut conn,
+            &mut transaction,
             &params.start,
             &params.end,
             &expr,
