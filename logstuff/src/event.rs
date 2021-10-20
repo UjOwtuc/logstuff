@@ -226,7 +226,7 @@ pub struct RsyslogdEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     procid: Option<String>,
 
-    /// syslog "NSGID"
+    /// syslog "MSGID"
     #[serde(skip_serializing_if = "Option::is_none")]
     msgid: Option<String>,
 
