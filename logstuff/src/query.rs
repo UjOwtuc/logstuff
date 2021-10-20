@@ -50,6 +50,7 @@ enum Expression {
     Compare(Value, Rule, Value),
     And(Box<Expression>, Box<Expression>),
     Or(Box<Expression>, Box<Expression>),
+    Fts(String),
 }
 
 pub type QueryParams = Vec<String>;
@@ -91,6 +92,16 @@ fn consume(pair: Pair<Rule>, climber: &PrecClimber<Rule>) -> Expression {
             );
             Expression::Compare(lhs, op, rhs)
         }
+        Rule::fts => Expression::Fts(
+            pair.into_inner()
+                .next()
+                .unwrap()
+                .into_inner()
+                .next()
+                .unwrap()
+                .as_str()
+                .to_string(),
+        ),
         _ => {
             println!("other rule: {:?}", pair);
             unreachable!()
@@ -195,6 +206,10 @@ fn walk_tree(
             };
             Ok((expr, params))
         }
+        Expression::Fts(value) => Ok((
+            format!("search @@ websearch_to_tsquery(${})", param_offset),
+            vec![value],
+        )),
     }
 }
 

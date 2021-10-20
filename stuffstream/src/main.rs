@@ -71,7 +71,7 @@ async fn fetch_events(
         .await
         .unwrap();
     transaction.execute(format!(
-        "create temporary view tail as select id, tstamp, doc from logs where tstamp between '{}' and '{}'", params.start.to_rfc3339(), params.end.to_rfc3339()).as_str(), &[]
+        "create temporary view tail as select id, tstamp, doc, search from logs where tstamp between '{}' and '{}'", params.start.to_rfc3339(), params.end.to_rfc3339()).as_str(), &[]
     ).await.unwrap();
 
     let (expr, query_params) = match params.query {
