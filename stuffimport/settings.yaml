@@ -1,0 +1,41 @@
+# vim: set ft=yaml ts=2 sw=2 et :
+# Example config file for "stuffimport". Given values are defaults. If you
+# don't want to change them you won't need any config file
+
+# Logging verbosity (https://docs.rs/log/0.4.14/log/enum.LevelFilter.html)
+log_level: info
+
+# Log output. If stuffimport is run by rsyslog, it will handle messages sent to
+# stderr
+log_file: /dev/stderr
+
+# Log table partitioning ordered from root to leaf (meaning: each entry defines
+# partitions of the previous entry). Possible kinds so far:
+# * root: Single table. This is the only valid option for the first entry and
+#     only valid as first entry.
+#   root Parmeters:
+#     table:  Name of this table
+#     schema: SQL data types in this table. Has to be compatible with
+#       stuffinsert's insert statements: insert into <table name> (tstamp, doc,
+#       search) values (timestamp with time zone, json, to_tsvector(text))
+#
+# * timerange: Partitions by event's timestamp.
+#   timerange Parameters:
+#     name_template: strftime format argument to get a table's name (see
+#       https://docs.rs/chrono/0.4.19/chrono/format/strftime/index.html). Each
+#       partition's name has to be a unique and valid postgresql table name.
+#     interval: Time range of a single partition. Valid values: Year, Quarter,
+#       Month, Week, Day, Hour, Minute.
+partitions:
+  - kind: root
+    table: logs
+    schema: >-
+      (
+        id integer not null default nextval('logs_id'),
+        tstamp timestamp with time zone not null,
+        doc jsonb not null,
+        search tsvector
+      )
+  - kind: timerange
+    name_template: logs_%Y_%m
+    interval: Month

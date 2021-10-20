@@ -1,0 +1,36 @@
+# example rules for liblognorm
+
+# config format version
+version=2
+
+# iptables
+rule=:[%uptime:char-sep:]%] iptables: %.:v2-iptables%
+
+# ssh
+rule=:Failed password for %user:word% from %address:ipv4% port %port:number% %protocol:word%
+rule=:Failed password for invalid user %user:word% from %address:ipv4% port %port:number% %protocol:word%
+rule=:Received disconnect from %address:ipv4% port %port:number%:11: %-:rest%
+rule=:Disconnected from authenticating user %user:word% %address:ipv4% port %port:number% [preauth]
+
+# pam
+prefix=%module:char-sep:(%(%source:char-sep::%:%step:char-sep:)%):
+rule=: authentication failure; logname=%logname:char-sep: :% uid=%uid:number% euid=%euid:number% tty=%tty:char-sep: :% ruser=%ruser:char-sep: :% rhost=%rhost:ipv4%%-:whitespace%
+rule=: authentication failure; logname=%logname:char-sep: :% uid=%uid:number% euid=%euid:number% tty=%tty:char-sep: :% ruser=%ruser:char-sep: :% rhost=%rhost:ipv4%  user=%user:word%
+rule=: session closed for user %user:word%
+rule=: session opened for user %user:word% by (uid=%old-uid:number%)
+rule=: session opened for user %user:char-sep:(%(uid=%uid:number%) by (uid=%old-uid:number%)
+rule=: check pass; user unknown
+
+# smartd
+prefix=
+rule=:Device: %device:word% [%type:char-sep:]%], SMART %attr-type:word% Attribute: %attr-id:number% %attr-name:word% changed from %old-value:number% to %new-value:number%
+
+# dnsmasq
+prefix=
+rule=:DHCP%action:char-sep:(%(%device:char-sep:)%) %ip:ipv4% %mac:mac48%
+rule=:DHCP%action:char-sep:(%(%device:char-sep:)%) %ip:ipv4% %mac:mac48% %host:word%
+
+# postfix statistics
+prefix=statistics: max connection
+rule=: rate %per-minute:number%/60s for (%transport:char-sep{"extradata": ":"}%:%address:ipv4%) at %date:date-rfc3164%
+rule=: count %connections:number% for (%transport:char-sep{"extradata": ":"}%:%address:ipv4%) at %date:date-rfc3164%
