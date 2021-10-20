@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use clap::{App, Arg};
+use clap::{crate_version, App, Arg};
 
 #[derive(Debug)]
 pub struct Options {
@@ -20,10 +20,10 @@ pub struct Options {
 
 impl Options {
     pub fn load() -> Options {
-        let matches = App::new("rust_daemon_template")
-            .version("0.0.1")
-            .author("Joe Wilm <joe@jwilm.com>")
-            .about("Description of rust_daemon_template goes here")
+        let matches = App::new("stuffimport")
+            .version(crate_version!())
+            .author("Karsten Borgwaldt <kb@spambri.de>")
+            .about("Event importer for postgres databases")
             .arg(
                 Arg::with_name("dump_config")
                     .short("d")
