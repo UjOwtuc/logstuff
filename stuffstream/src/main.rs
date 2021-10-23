@@ -16,7 +16,7 @@ struct EventsRequest {
     start: DateTime<FixedOffset>,
     end: DateTime<FixedOffset>,
     query: Option<String>,
-    limit_events: Option<usize>,
+    limit_events: Option<i64>,
 }
 
 #[tokio::main]
@@ -106,18 +106,18 @@ async fn fetch_events(
         table, expr
     );
 
+    let mut next_param_id = query_params.len() + 1;
     let events_query = format!(
         r#"
     select jsonb_build_object('timestamp', tstamp, 'id', id, 'source', doc) as doc
     from {}
     where {}
     order by tstamp desc
-    limit {}
+    limit ${}
         "#,
-        table,
-        expr,
-        params.limit_events.unwrap_or(5000)
+        table, expr, next_param_id,
     );
+    next_param_id += 1;
 
     let duration = params.end.signed_duration_since(params.start);
     let trunc = if duration <= Duration::hours(1) {
@@ -131,46 +131,59 @@ async fn fetch_events(
     };
     println!("counts scale: {}", trunc);
 
-    let our_params = vec![params.start, params.end];
-    let next_param_id = query_params.len() + 1;
     let counts_query = format!(
         r#"
-        select date_trunc('{}', dd) as dt, count(l) as count
-        from generate_series(${}, ${}, '1 {}'::interval) dd
-        left join (select tstamp from {} where {}) l
-        on date_trunc('{}', dd) = date_trunc('{}', l.tstamp)
-        group by dd
-        order by dd
+            select dt, coalesce(l.count, 0) as count
+            from generate_series(${}, ${}, '1 {}'::interval) dt
+            left join (select date_trunc('{}', tstamp) as ld, count(tstamp) as count
+                from {}
+                where {}
+                and tstamp between ${} and ${}
+                group by 1) l
+            on date_trunc('{}', dt) = l.ld
+            order by dt
         "#,
-        trunc,
         next_param_id,
         next_param_id + 1,
         trunc,
+        trunc,
         table,
         expr,
-        trunc,
-        trunc,
+        next_param_id,
+        next_param_id + 1,
+        trunc
+    );
+
+    let metadata_query = format!(
+        r#"
+            select 'event_count' as key, count_estimate('select * from {}') as value
+        "#,
+        table
     );
 
     let full_query = format!(
         r#"
-                select fields.doc || events.doc || counts.doc as doc
+                select fields.doc || events.doc || counts.doc || metadata.doc as doc
                 from
                 (select jsonb_build_object('fields', jsonb_object_agg(key, values)) as doc from ({}) f) fields,
                 (select jsonb_build_object('events', jsonb_agg(doc)) as doc from ({}) e) events,
-                (select jsonb_build_object('counts', jsonb_object_agg(dt, count)) as doc from ({}) c) counts
+                (select jsonb_build_object('counts', jsonb_object_agg(dt, count)) as doc from ({}) c) counts,
+                (select jsonb_build_object('metadata', jsonb_object_agg(key, value)) as doc from ({}) m) metadata
             "#,
-        fields_query, events_query, counts_query
+        fields_query, events_query, counts_query, metadata_query
     );
 
+    type Param = (dyn ToSql + Sync);
     let query = transaction
         .query_raw(
             full_query.as_str(),
             query_params
                 .iter()
-                .map(|e| e as &(dyn ToSql + Sync))
-                .chain(our_params.iter().map(|e| e as &(dyn ToSql + Sync)))
-                .collect::<Vec<&(dyn ToSql + Sync)>>(),
+                .map(|e| e as &Param)
+                .chain(std::iter::once::<&Param>(&params.limit_events))
+                .chain(std::iter::once::<&Param>(&params.start))
+                .chain(std::iter::once::<&Param>(&params.end))
+                .collect::<Vec<&Param>>(),
         )
         .await
         .unwrap();
