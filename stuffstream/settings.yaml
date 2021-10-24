@@ -1,0 +1,26 @@
+# vim: set ft=yaml ts=2 sw=2 et :
+# Example config file for "stuffstream". Given values are defaults. If you
+# don't want to change them you won't need any config file
+
+# Database URL, (see
+# https://docs.rs/postgres/0.19.2/postgres/config/struct.Config.html)
+db_url: >-
+  user=stuffstream
+  password=stuffstream-password
+  host=127.0.0.1
+  port=5432
+  dbname=log
+
+# Logging verbosity (https://docs.rs/log/0.4.14/log/enum.LevelFilter.html)
+log_level: info
+
+# Log output. If stuffimport is run by rsyslog, it will handle messages sent to
+# stderr
+log_file: /dev/stderr
+
+# Bind server to given address and port
+listen_address: 127.0.0.1:8080
+
+# Automatically restart server on non-critical errors (won't happen, errors are
+# either within a request and won't terminate the server or fatal)
+auto_restart: false
