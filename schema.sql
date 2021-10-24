@@ -5,12 +5,11 @@ create schema logs;
 
 -- writer role may create tables (partitions) and insert data
 create role write_logs with nologin;
-grant usage on schema logs to write_logs;
+grant usage, create on schema logs to write_logs;
 grant connect on database log to write_logs;
 alter role write_logs set search_path to 'logs';
-alter default privileges for role write_logs in schema logs
-	grant insert on tables,
-	grant usage on sequences;
+alter default privileges in schema logs grant insert on tables to write_logs;
+alter default privileges in schema logs grant usage on sequences to write_logs;
 
 -- reader role may select data, execute functions and create temporary objects
 create role read_logs with nologin;
@@ -18,15 +17,16 @@ grant connect, temporary on database log to read_logs;
 grant execute on all functions in schema logs to read_logs;
 grant usage on schema logs to read_logs;
 alter role read_logs set search_path to 'logs';
-alter default privileges for role read_logs in schema logs
-	grant select on tables,
-	grant execute on functions;
+alter default privileges in schema logs grant select on tables to read_logs;
+alter default privileges in schema logs grant execute on functions to read_logs;
 
 -- users
 create role stuffstream with login password 'stuffstream-password' in role read_logs;
 alter role stuffstream set search_path to 'logs';
 create role stuffimport with login password 'stuffimport-password' in role write_logs;
 alter role stuffimport set search_path to 'logs';
+create role stufftail with login password 'stufftail-password' in role read_logs;
+alter role stufftail set search_path to 'logs';
 
 create sequence logs.logs_id;
 
@@ -41,9 +41,8 @@ alter table logs.logs owner to write_logs;
 create index idx_logs_id_tstamp on logs.logs(id, tstamp);
 create index idx_search on logs.logs using GIN(search);
 
--- stuffimport will create tables like this
--- create table logs.logs_2021_10 partition of logs for values from ('2021-10-01') to ('2021-11-01');
--- alter table logs.logs_2021_10 owner to write_logs;
+create table logs.logs_2021_10 partition of logs.logs for values from ('2021-10-01') to ('2021-11-01');
+alter table logs.logs_2021_10 owner to write_logs;
 
 create or replace function logs.to_number_or_null(text) returns numeric as $$
 begin

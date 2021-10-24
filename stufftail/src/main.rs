@@ -30,8 +30,8 @@ struct Settings {
 
 impl Settings {
     fn from_cli_args() -> Self {
-        let username = std::env::var("USERNAME").unwrap_or_else(|_| "stufftail".into());
-        let default_db_config = format!("host=/var/run/postgresql/ user={} dbname=log", username);
+        let default_db_config =
+            "user=stufftail password=stufftail-password host=127.0.0.1 port=5432 dbname=log";
         let matches = App::new("stufftail")
             .about("Poll for new entries in logstuff's database.")
             .version(crate_version!())
@@ -42,7 +42,7 @@ impl Settings {
                     .value_name("CONFIG")
                     .help("Database connect config (see https://docs.rs/postgres/0.19.2/postgres/config/struct.Config.html for options)")
                     .takes_value(true)
-                    .default_value(&default_db_config))
+                    .default_value(default_db_config))
             .arg(
                 Arg::with_name("max_age")
                     .short("a")
@@ -129,7 +129,7 @@ impl Settings {
             fields,
             db_config: matches
                 .value_of("db_connection")
-                .unwrap_or(&default_db_config)
+                .unwrap_or(default_db_config)
                 .to_string(),
         }
     }
@@ -168,12 +168,7 @@ fn prepare_query<'a>(
 fn main() {
     simple_logging::log_to_stderr(LevelFilter::Info);
     let settings = Settings::from_cli_args();
-
-    let mut client = postgres::Client::connect(
-        "host=/var/run/postgresql/ user=karsten dbname=log",
-        postgres::NoTls,
-    )
-    .unwrap();
+    let mut client = postgres::Client::connect(&settings.db_config, postgres::NoTls).unwrap();
 
     let (stmt, our_params) = prepare_query(&mut client, &settings);
     let mut last_id = 0;

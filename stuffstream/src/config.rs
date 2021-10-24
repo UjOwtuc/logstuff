@@ -14,11 +14,12 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let username = std::env::var("USER").unwrap_or_else(|_| "stufftail".into());
         Config {
             log_level: log::LevelFilter::Info,
             log_file: "/dev/stderr".into(),
-            db_url: format!("host=/var/run/postgresql/ user={} dbname=log", username),
+            db_url:
+                "user=stuffstream password=stuffstream-password host=127.0.0.1 port=5432 dbname=log"
+                    .into(),
             listen_address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
             auto_restart: false,
         }
