@@ -13,11 +13,10 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let username = std::env::var("USER").unwrap_or_else(|_| "stufftail".into());
         Config {
             log_level: log::LevelFilter::Info,
             log_file: "/dev/stderr".into(),
-            db_url: format!("host=/var/run/postgresql/ user={} dbname=log", username),
+            db_url: "user=stuffimport password=stuffimport-password host=127.0.0.1 port=5432 dbname=log target_session_attrs=read-write".into(),
             partitions: vec![
                 Box::new(partition::Root::default()),
                 Box::new(partition::Timerange::default()),

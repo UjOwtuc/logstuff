@@ -249,6 +249,16 @@ pub fn create_tables(
                 single_create_statement(event, parent, *part, child)?.as_str(),
                 &[],
             )?;
+
+            // TODO configurable owner
+            client.execute(
+                format!(
+                    "alter table {} owner to write_logs",
+                    part.table_name(event)?
+                )
+                .as_str(),
+                &[],
+            )?;
             Ok(())
         })?;
     Ok(())

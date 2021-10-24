@@ -2,6 +2,16 @@
 # Example config file for "stuffimport". Given values are defaults. If you
 # don't want to change them you won't need any config file
 
+# Database URL, (see
+# https://docs.rs/postgres/0.19.2/postgres/config/struct.Config.html)
+db_url: >-
+  user=stuffimport
+  password=stuffimport-password
+  host=127.0.0.1
+  port=5432
+  dbname=log
+  target_session_attrs=read-write
+
 # Logging verbosity (https://docs.rs/log/0.4.14/log/enum.LevelFilter.html)
 log_level: info
 
