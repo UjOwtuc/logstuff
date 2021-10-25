@@ -179,14 +179,14 @@ async fn fetch_events(
         params.end.unix_timestamp() - params.start.unix_timestamp(),
         0,
     );
-    let trunc = if duration <= Duration::hours(1) {
-        "second"
+    let (trunc, interval) = if duration <= Duration::hours(1) {
+        ("second", 1)
     } else if duration <= Duration::days(1) {
-        "minute"
+        ("minute", 60)
     } else if duration <= Duration::days(30) {
-        "hour"
+        ("hour", 3600)
     } else {
-        "day"
+        ("day", 3600 * 24)
     };
     println!("counts scale: {}", trunc);
 
@@ -216,8 +216,10 @@ async fn fetch_events(
     let metadata_query = format!(
         r#"
             select 'event_count' as key, count_estimate('select * from {}') as value
+            union
+            select 'counts_interval_sec' as key, {} as value
         "#,
-        table
+        table, interval
     );
 
     let full_query = format!(
