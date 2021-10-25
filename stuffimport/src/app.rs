@@ -1,6 +1,3 @@
-use chrono::Utc;
-use simplelog::{ConfigBuilder, WriteLogger};
-use std::fs::OpenOptions;
 use std::{fmt, io};
 
 use logstuff::event::{Event, RsyslogdEvent};
@@ -21,7 +18,6 @@ pub struct App {
 /// Error type for the core program logic
 #[derive(Debug)]
 pub enum Error {
-    Logger(log::SetLoggerError),
     Db(postgres::Error),
     Io(io::Error),
     Json(serde_json::Error),
@@ -31,25 +27,8 @@ pub enum Error {
 impl Application for App {
     type Err = Error;
 
-    fn new(opts: Options, config: Config) -> Result<Self, Self::Err> {
-        let log_level = opts.max_log_level.unwrap_or(config.log_level);
-        let log_file = opts.log_file.unwrap_or(config.log_file);
-        WriteLogger::init(
-            log_level,
-            ConfigBuilder::new()
-                .set_max_level(log_level)
-                .set_time_format_str("%F %T")
-                .set_time_to_local(true)
-                .build(),
-            reopen::Reopen::new(Box::new(move || {
-                OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .append(true)
-                    .open(log_file.to_string())
-            }))?,
-        )?;
-
+    fn new(_opts: Options, config: Config) -> Result<Self, Self::Err> {
+        env_logger::init();
         let client = postgres::Client::connect(&config.db_url, postgres::NoTls)?;
 
         // tell rsyslogd that we are ready
@@ -88,7 +67,7 @@ impl App {
                 root_table
             )
             .as_str(),
-            &[&event.timestamp.with_timezone(&Utc), &event.doc, &search],
+            &[&event.timestamp, &event.doc, &search],
         )?;
         Ok(())
     }
@@ -145,12 +124,6 @@ impl From<postgres::Error> for Error {
     }
 }
 
-impl From<log::SetLoggerError> for Error {
-    fn from(error: log::SetLoggerError) -> Self {
-        Self::Logger(error)
-    }
-}
-
 impl From<partition::Error> for Error {
     fn from(error: partition::Error) -> Self {
         Self::Partition(error)
@@ -163,7 +136,6 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::Error::*;
         match self {
-            Logger(e) => write!(f, "Could not set logger: {}", e),
             Db(e) => write!(f, "Database connection error: {}", e),
             Io(e) => write!(f, "I/O Error: {}", e),
             Json(e) => write!(f, "json de-/serialization failed: {}", e),

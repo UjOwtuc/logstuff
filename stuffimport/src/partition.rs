@@ -1,6 +1,9 @@
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
 use serde::Deserialize;
 use std::{error, fmt};
+use time::error::{Format, InvalidFormatDescription};
+use time::{
+    format_description, Date, Duration, Month, OffsetDateTime, PrimitiveDateTime, Time, Weekday,
+};
 
 use logstuff::event::Event;
 
@@ -8,6 +11,8 @@ use logstuff::event::Event;
 pub enum Error {
     Postgres(postgres::Error),
     NoPartition(String),
+    InvalidDateTimeFormat(InvalidFormatDescription),
+    DateTimeFormat(Format),
 }
 
 impl error::Error for Error {}
@@ -18,6 +23,8 @@ impl fmt::Display for Error {
         match self {
             Postgres(e) => write!(f, "Database connection error: {}", e),
             NoPartition(e) => write!(f, "No parition: {}", e),
+            InvalidDateTimeFormat(e) => write!(f, "Invalid date and time format: {}", e),
+            DateTimeFormat(e) => write!(f, "Could not format time stamp: {}", e),
         }
     }
 }
@@ -35,6 +42,18 @@ pub trait Partitioner: std::fmt::Debug {
 impl From<postgres::Error> for Error {
     fn from(error: postgres::Error) -> Self {
         Error::Postgres(error)
+    }
+}
+
+impl From<InvalidFormatDescription> for Error {
+    fn from(error: InvalidFormatDescription) -> Self {
+        Error::InvalidDateTimeFormat(error)
+    }
+}
+
+impl From<Format> for Error {
+    fn from(error: Format) -> Self {
+        Error::DateTimeFormat(error)
     }
 }
 
@@ -95,63 +114,73 @@ pub enum TimeTruncate {
 }
 
 impl TimeTruncate {
-    pub fn lower_bound(&self, timestamp: &NaiveDateTime) -> NaiveDateTime {
+    pub fn lower_bound(&self, timestamp: &OffsetDateTime) -> OffsetDateTime {
         let date = match self {
-            Self::Year => NaiveDate::from_ymd(timestamp.year(), 1, 1),
+            Self::Year => Date::from_calendar_date(timestamp.year(), Month::January, 1).unwrap(),
             Self::Quarter => {
                 let month = match timestamp.month() {
-                    1 | 2 | 3 => 1,
-                    4 | 5 | 6 => 4,
-                    7 | 8 | 9 => 7,
-                    10 | 11 | 12 => 10,
-                    _ => unreachable!(),
+                    Month::January | Month::February | Month::March => Month::January,
+                    Month::April | Month::May | Month::June => Month::April,
+                    Month::July | Month::August | Month::September => Month::July,
+                    Month::October | Month::November | Month::December => Month::October,
                 };
-                NaiveDate::from_ymd(timestamp.year(), month, 1)
+                Date::from_calendar_date(timestamp.year(), month, 1).unwrap()
             }
-            Self::Month => timestamp.date().with_day(1).unwrap(),
+            Self::Month => {
+                Date::from_calendar_date(timestamp.year(), timestamp.month(), 1).unwrap()
+            }
             Self::Week => {
                 let week = timestamp.iso_week();
-                NaiveDate::from_isoywd(week.year(), week.week(), Weekday::Mon)
+                Date::from_iso_week_date(timestamp.year(), week, Weekday::Monday).unwrap()
             }
             _ => timestamp.date(),
         };
 
         let time = match self {
-            Self::Hour => NaiveTime::from_hms(timestamp.hour(), 0, 0),
-            Self::Minute => timestamp.time().with_second(0).unwrap(),
-            _ => NaiveTime::from_hms(0, 0, 0),
+            Self::Hour => Time::from_hms(timestamp.hour(), 0, 0).unwrap(),
+            Self::Minute => Time::from_hms(timestamp.hour(), timestamp.minute(), 0).unwrap(),
+            _ => Time::from_hms(0, 0, 0).unwrap(),
         };
 
-        date.and_time(time)
+        date.with_time(time).assume_utc()
     }
 
-    pub fn upper_bound(&self, timestamp: &NaiveDateTime) -> NaiveDateTime {
+    pub fn upper_bound(&self, timestamp: &OffsetDateTime) -> OffsetDateTime {
         let next = match self {
-            Self::Year => timestamp.with_year(timestamp.year() + 1).unwrap(),
+            Self::Year => timestamp.replace_date(
+                Date::from_calendar_date(timestamp.year() + 1, Month::January, 1).unwrap(),
+            ),
             Self::Quarter => {
                 let mut year = timestamp.year();
                 let month = match timestamp.month() {
-                    1 | 2 | 3 => 4,
-                    4 | 5 | 6 => 7,
-                    7 | 8 | 9 => 10,
-                    10 | 11 | 12 => {
+                    Month::January | Month::February | Month::March => Month::April,
+                    Month::April | Month::May | Month::June => Month::July,
+                    Month::July | Month::August | Month::September => Month::October,
+                    Month::October | Month::November | Month::December => {
                         year += 1;
-                        1
+                        Month::January
                     }
-                    _ => unreachable!(),
                 };
-                NaiveDate::from_ymd(year, month, timestamp.day()).and_time(timestamp.time())
+                PrimitiveDateTime::new(
+                    Date::from_calendar_date(year, month, timestamp.day()).unwrap(),
+                    timestamp.time(),
+                )
+                .assume_utc()
             }
             Self::Month => {
                 let mut year = timestamp.year();
                 let month = match timestamp.month() {
-                    12 => {
+                    Month::December => {
                         year += 1;
-                        1
+                        Month::January
                     }
-                    month => month + 1,
+                    month => month.next(),
                 };
-                NaiveDate::from_ymd(year, month, timestamp.day()).and_time(timestamp.time())
+                PrimitiveDateTime::new(
+                    Date::from_calendar_date(year, month, timestamp.day()).unwrap(),
+                    timestamp.time(),
+                )
+                .assume_utc()
             }
             Self::Week => *timestamp + Duration::weeks(1),
             Self::Day => *timestamp + Duration::days(1),
@@ -183,7 +212,8 @@ impl Default for Timerange {
 #[typetag::serde(name = "timerange")]
 impl Partitioner for Timerange {
     fn table_name(&self, event: &Event) -> Result<String, Error> {
-        Ok(event.timestamp.format(&self.name_template).to_string())
+        let format = format_description::parse(&self.name_template)?;
+        Ok(event.timestamp.format(&format)?)
     }
 
     fn partition_by(&self) -> String {
@@ -191,12 +221,13 @@ impl Partitioner for Timerange {
     }
 
     fn bounds(&self, event: &Event) -> String {
-        let from = self.interval.lower_bound(&event.timestamp.naive_local());
-        let to = self.interval.upper_bound(&event.timestamp.naive_local());
+        let from = self.interval.lower_bound(&event.timestamp);
+        let to = self.interval.upper_bound(&event.timestamp);
+        let format = time::macros::format_description!("[year]-[month]-[day]");
         format!(
             "from ('{}') to ('{}')",
-            from.format("%Y-%m-%d"),
-            to.format("%Y-%m-%d")
+            from.format(&format).unwrap(),
+            to.format(&format).unwrap()
         )
     }
 }

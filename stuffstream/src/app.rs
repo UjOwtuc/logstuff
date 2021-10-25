@@ -1,19 +1,18 @@
 use bb8_postgres::tokio_postgres::{self, types::ToSql, IsolationLevel, NoTls};
 use bb8_postgres::{bb8, PostgresConnectionManager};
-use chrono::{DateTime, Duration, FixedOffset};
 use futures::TryStreamExt;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
-use simplelog::{ConfigBuilder, WriteLogger};
 use std::convert::Infallible;
-use std::fs::OpenOptions;
 use std::iter::Iterator;
 use std::net::SocketAddr;
 use std::{fmt, io};
+use time::{macros::format_description, Duration, OffsetDateTime, UtcOffset};
 use warp::http::{Response, StatusCode};
 use warp::Filter;
 
 use logstuff::query::parse_query;
+use logstuff::serde::de::rfc3339;
 
 use crate::application::{Application, Stopping};
 use crate::cli::Options;
@@ -38,8 +37,10 @@ pub enum Error {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct EventsRequest {
-    start: DateTime<FixedOffset>,
-    end: DateTime<FixedOffset>,
+    #[serde(deserialize_with = "rfc3339")]
+    start: OffsetDateTime,
+    #[serde(deserialize_with = "rfc3339")]
+    end: OffsetDateTime,
     query: Option<String>,
     limit_events: Option<i64>,
 }
@@ -47,25 +48,7 @@ struct EventsRequest {
 impl Application for App {
     type Err = Error;
 
-    fn new(opts: Options, config: Config) -> Result<Self, Self::Err> {
-        let log_level = opts.max_log_level.unwrap_or(config.log_level);
-        let log_file = opts.log_file.unwrap_or(config.log_file);
-        WriteLogger::init(
-            log_level,
-            ConfigBuilder::new()
-                .set_max_level(log_level)
-                .set_time_format_str("%F %T")
-                .set_time_to_local(true)
-                .build(),
-            reopen::Reopen::new(Box::new(move || {
-                OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .append(true)
-                    .open(log_file.to_string())
-            }))?,
-        )?;
-
+    fn new(_opts: Options, config: Config) -> Result<Self, Self::Err> {
         Ok(App {
             auto_restart: config.auto_restart,
             listen_address: config.listen_address,
@@ -137,8 +120,14 @@ async fn fetch_events(
         .execute("drop view if exists tail", &[])
         .await
         .unwrap();
-    transaction.execute(format!(
-        "create temporary view tail as select id, tstamp, doc, search from logs where tstamp between '{}' and '{}'", params.start.to_rfc3339(), params.end.to_rfc3339()).as_str(), &[]
+
+    let rfc3339_format = format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]Z");
+    transaction.execute(
+        format!(
+            "create temporary view tail as select id, tstamp, doc, search from logs where tstamp between '{}' and '{}'",
+            params.start.to_offset(UtcOffset::UTC).format(&rfc3339_format).unwrap(),
+            params.end.to_offset(UtcOffset::UTC).format(&rfc3339_format).unwrap()
+        ).as_str(), &[]
     ).await.unwrap();
 
     let (expr, query_params) = match params.query {
@@ -186,7 +175,10 @@ async fn fetch_events(
     );
     next_param_id += 1;
 
-    let duration = params.end.signed_duration_since(params.start);
+    let duration = Duration::new(
+        params.end.unix_timestamp() - params.start.unix_timestamp(),
+        0,
+    );
     let trunc = if duration <= Duration::hours(1) {
         "second"
     } else if duration <= Duration::days(1) {

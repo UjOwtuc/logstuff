@@ -1,6 +1,8 @@
-use chrono::{DateTime, Utc};
 use serde_json::{json, Map, Value};
 use std::fmt;
+use time::{macros::format_description, OffsetDateTime};
+
+use crate::serde::de::rfc3339;
 
 #[derive(PartialEq, Debug)]
 #[repr(u8)]
@@ -174,10 +176,12 @@ pub struct RsyslogdEvent {
     rawmsg: String,
 
     /// report time of the device sending this message
-    timereported: DateTime<Utc>,
+    #[serde(deserialize_with = "rfc3339")]
+    timereported: OffsetDateTime,
 
     /// time stamp when rsyslog generated this message object
-    timegenerated: DateTime<Utc>,
+    #[serde(deserialize_with = "rfc3339")]
+    timegenerated: OffsetDateTime,
 
     /// host name from the message
     hostname: String,
@@ -241,7 +245,7 @@ pub struct RsyslogdEvent {
 
 #[derive(Debug)]
 pub struct Event {
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: OffsetDateTime,
     pub doc: Value,
 }
 
@@ -344,7 +348,8 @@ impl From<RsyslogdEvent> for Event {
 
 impl fmt::Display for Event {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.timestamp.format("%F %T"))?;
+        let timeformat = format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
+        write!(f, "{}", self.timestamp.format(&timeformat).unwrap())?;
         if let Some(host) = self.get_printable("hostname") {
             write!(f, " {}", host)?;
         }

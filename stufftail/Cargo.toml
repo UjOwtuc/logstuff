@@ -5,9 +5,10 @@ edition = "2018"
 
 [dependencies]
 logstuff = { path = "../logstuff" }
-serde_json = "1.0"
-postgres = { version = "0.19", features = ["with-chrono-0_4", "with-serde_json-1"] }
-simple-logging = "2"
+serde_json = "1"
+postgres = { version = "0.19", features = ["with-time-0_3", "with-serde_json-1"] }
 log = "0.4"
+env_logger = "0.9"
 clap = "2"
+time = { version = "0.3", features = ["formatting", "macros", "local-offset"] }
 

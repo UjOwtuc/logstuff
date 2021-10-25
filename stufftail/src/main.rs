@@ -1,7 +1,7 @@
 use clap::{crate_version, App, Arg};
-use log::LevelFilter;
 use postgres::types::ToSql;
-use std::{thread, time};
+use std::thread;
+use time::macros::format_description;
 
 use logstuff::event::Event;
 use logstuff::query::{parse_query, QueryParams};
@@ -166,7 +166,7 @@ fn prepare_query<'a>(
 }
 
 fn main() {
-    simple_logging::log_to_stderr(LevelFilter::Info);
+    env_logger::init();
     let settings = Settings::from_cli_args();
     let mut client = postgres::Client::connect(&settings.db_config, postgres::NoTls).unwrap();
 
@@ -191,14 +191,15 @@ fn main() {
                 let id: i32 = row.get("id");
                 last_id = max(last_id, id);
             });
-        thread::sleep(time::Duration::from_millis(settings.poll_interval_ms));
+        thread::sleep(std::time::Duration::from_millis(settings.poll_interval_ms));
     }
 }
 
 fn print_event(event: Event, settings: &Settings) {
+    let timeformat = format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
     println!(
         "{} {}",
-        event.timestamp.format("%F %T"),
+        event.timestamp.format(&timeformat).unwrap(),
         settings
             .fields
             .iter()

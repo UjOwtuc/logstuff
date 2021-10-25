@@ -12,13 +12,6 @@ db_url: >-
   dbname=log
   target_session_attrs=read-write
 
-# Logging verbosity (https://docs.rs/log/0.4.14/log/enum.LevelFilter.html)
-log_level: info
-
-# Log output. If stuffimport is run by rsyslog, it will handle messages sent to
-# stderr
-log_file: /dev/stderr
-
 # Log table partitioning ordered from root to leaf (meaning: each entry defines
 # partitions of the previous entry). Possible kinds so far:
 # * root: Single table. This is the only valid option for the first entry and
@@ -47,5 +40,5 @@ partitions:
         search tsvector
       )
   - kind: timerange
-    name_template: logs_%Y_%m
+    name_template: logs_[year]_[month]
     interval: Month

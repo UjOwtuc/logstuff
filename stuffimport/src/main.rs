@@ -30,7 +30,7 @@ fn main() {
     }
 }
 
-fn run<T: Application>() -> Result<(), Box<dyn ::std::error::Error>> {
+fn run<T: Application>() -> Result<(), Box<dyn::std::error::Error>> {
     // Load command-line options
     let opts = cli::Options::load();
 
