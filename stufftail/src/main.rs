@@ -1,10 +1,12 @@
 use clap::{crate_version, App, Arg};
 use postgres::types::ToSql;
+use postgres_native_tls::MakeTlsConnector;
 use std::thread;
 use time::macros::format_description;
 
 use logstuff::event::Event;
 use logstuff::query::{parse_query, QueryParams};
+use logstuff::tls::TlsSettings;
 
 fn max<T>(a: T, b: T) -> T
 where
@@ -26,12 +28,13 @@ struct Settings {
     query_params: QueryParams,
     fields: Vec<String>,
     db_config: String,
+    tls: TlsSettings,
 }
 
 impl Settings {
     fn from_cli_args() -> Self {
         let default_db_config =
-            "user=stufftail password=stufftail-password host=127.0.0.1 port=5432 dbname=log";
+            "user=stufftail password=stufftail-password host=localhost port=5432 dbname=log";
         let matches = App::new("stufftail")
             .about("Poll for new entries in logstuff's database.")
             .version(crate_version!())
@@ -96,6 +99,16 @@ impl Settings {
                     .multiple(true)
                     .number_of_values(1),
             )
+            .arg(
+                Arg::with_name("ca_cert")
+                    .short("c")
+                    .long("ca-cert")
+                    .value_name("FILE")
+                    .help("CA certificate (bundle) to verify server's cert")
+                    .takes_value(true)
+                    .multiple(true)
+                    .number_of_values(1)
+            )
             .get_matches();
 
         let (query_expr, query_params) = match matches.value_of("query") {
@@ -111,6 +124,11 @@ impl Settings {
                 "msg".to_string(),
             ],
         };
+
+        let mut tls = TlsSettings::default();
+        if let Some(certs) = matches.values_of("ca_cert") {
+            tls.ca_certs = certs.map(|e| e.to_string()).collect();
+        }
 
         Self {
             max_age: matches.value_of("max_age").unwrap_or("1 hour").into(),
@@ -131,6 +149,7 @@ impl Settings {
                 .value_of("db_connection")
                 .unwrap_or(default_db_config)
                 .to_string(),
+            tls,
         }
     }
 }
@@ -168,7 +187,8 @@ fn prepare_query<'a>(
 fn main() {
     env_logger::init();
     let settings = Settings::from_cli_args();
-    let mut client = postgres::Client::connect(&settings.db_config, postgres::NoTls).unwrap();
+    let connector = MakeTlsConnector::new(settings.tls.connector().unwrap());
+    let mut client = postgres::Client::connect(&settings.db_config, connector).unwrap();
 
     let (stmt, our_params) = prepare_query(&mut client, &settings);
     let mut last_id = 0;

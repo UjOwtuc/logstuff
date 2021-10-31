@@ -1,6 +1,7 @@
-use bb8_postgres::tokio_postgres::{self, types::ToSql, IsolationLevel, NoTls};
+use bb8_postgres::tokio_postgres::{self, types::ToSql, IsolationLevel};
 use bb8_postgres::{bb8, PostgresConnectionManager};
 use futures::TryStreamExt;
+use rustls::client::ClientConfig;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::convert::Infallible;
@@ -8,11 +9,13 @@ use std::iter::Iterator;
 use std::net::SocketAddr;
 use std::{fmt, io};
 use time::{macros::format_description, Duration, OffsetDateTime, UtcOffset};
+use tokio_postgres_rustls::MakeRustlsConnect;
 use warp::http::{Response, StatusCode};
 use warp::Filter;
 
 use logstuff::query::parse_query;
 use logstuff::serde::de::rfc3339;
+use logstuff::tls;
 
 use crate::application::{Application, Stopping};
 use crate::cli::Options;
@@ -25,6 +28,7 @@ pub struct App {
     auto_restart: bool,
     listen_address: SocketAddr,
     db_url: String,
+    tls_config: tls::ClientConfig,
 }
 
 /// Error type for the core program logic
@@ -33,6 +37,7 @@ pub enum Error {
     Logger(log::SetLoggerError),
     Io(io::Error),
     Db(tokio_postgres::Error),
+    Tls(tls::Error),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -49,10 +54,12 @@ impl Application for App {
     type Err = Error;
 
     fn new(_opts: Options, config: Config) -> Result<Self, Self::Err> {
+        env_logger::try_init()?;
         Ok(App {
             auto_restart: config.auto_restart,
             listen_address: config.listen_address,
             db_url: config.db_url,
+            tls_config: config.tls.client_config()?,
         })
     }
 
@@ -61,7 +68,11 @@ impl Application for App {
             .enable_all()
             .build()
             .unwrap()
-            .block_on(start_server(&self.listen_address, &self.db_url))?;
+            .block_on(start_server(
+                &self.listen_address,
+                &self.db_url,
+                &self.tls_config,
+            ))?;
 
         if self.auto_restart {
             Ok(Stopping::No)
@@ -73,8 +84,13 @@ impl Application for App {
 
 impl App {}
 
-async fn start_server(listen_address: &SocketAddr, db_url: &str) -> Result<(), Error> {
-    let manager = PostgresConnectionManager::new_from_stringlike(db_url, NoTls)?;
+async fn start_server(
+    listen_address: &SocketAddr,
+    db_url: &str,
+    tls_config: &ClientConfig,
+) -> Result<(), Error> {
+    let connector = MakeRustlsConnect::new(tls_config.clone());
+    let manager = PostgresConnectionManager::new_from_stringlike(db_url, connector)?;
     let dbpool = bb8::Pool::builder()
         .max_size(3)
         .build(manager)
@@ -138,27 +154,27 @@ async fn fetch_events(
 
     let fields_query = format!(
         r#"
-    select key::varchar, jsonb_object_agg(coalesce(value::text, ''), count::integer) as values from (
-        select row_number() over (
-        partition by key
-        order by count desc) as row_number,
-        count, key, value
-        from (
-        select count(*), key, value
-        from (
-            select doc
-            from {}
-            where {}
-            order by tstamp desc
-            limit 500
-        ) limited_logs, jsonb_each_text(doc)
-        group by key, value
-        order by key, count desc
-        ) counted
-    ) ranked
-    where row_number <= 5
-    group by key
-    "#,
+            select key::varchar, jsonb_object_agg(coalesce(value::text, ''), count::integer) as values from (
+                select row_number() over (
+                partition by key
+                order by count desc) as row_number,
+                count, key, value
+                from (
+                select count(*), key, value
+                from (
+                    select doc
+                    from {}
+                    where {}
+                    order by tstamp desc
+                    limit 500
+                ) limited_logs, jsonb_each_text(doc)
+                group by key, value
+                order by key, count desc
+                ) counted
+            ) ranked
+            where row_number <= 5
+            group by key
+        "#,
         table, expr
     );
 
@@ -252,7 +268,7 @@ async fn fetch_events(
     query.map_ok(|row| format!("{}\n", row.get::<&str, Value>("doc").to_string()))
 }
 
-type DBPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
+type DBPool = bb8::Pool<PostgresConnectionManager<MakeRustlsConnect>>;
 fn with_db(db_pool: DBPool) -> impl Filter<Extract = (DBPool,), Error = Infallible> + Clone {
     warp::any().map(move || db_pool.clone())
 }
@@ -277,6 +293,12 @@ impl From<tokio_postgres::Error> for Error {
     }
 }
 
+impl From<tls::Error> for Error {
+    fn from(error: tls::Error) -> Self {
+        Self::Tls(error)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::Error::*;
@@ -284,6 +306,7 @@ impl fmt::Display for Error {
             Logger(e) => write!(f, "Could not set logger: {}", e),
             Io(e) => write!(f, "I/O Error: {}", e),
             Db(e) => write!(f, "Database connection error: {}", e),
+            Tls(e) => write!(f, "TLS setup error: {}", e),
         }
     }
 }

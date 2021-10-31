@@ -1,3 +1,4 @@
+use logstuff::tls::TlsSettings;
 use std::fs::File;
 
 use crate::partition::{self, Partitioner};
@@ -7,6 +8,7 @@ use crate::partition::{self, Partitioner};
 pub struct Config {
     pub db_url: String,
     pub partitions: Vec<Box<dyn Partitioner>>,
+    pub tls: TlsSettings,
 }
 
 impl Default for Config {
@@ -17,13 +19,14 @@ impl Default for Config {
                 Box::new(partition::Root::default()),
                 Box::new(partition::Timerange::default()),
             ],
+            tls: TlsSettings::default()
         }
     }
 }
 
 impl Config {
     /// Load config using path specified in options
-    pub fn load(opts: &crate::cli::Options) -> Result<Config, Box<dyn::std::error::Error>> {
+    pub fn load(opts: &crate::cli::Options) -> Result<Config, Box<dyn ::std::error::Error>> {
         if let Some(path) = &opts.config_path {
             let reader = File::open(path)?;
             Ok(serde_yaml::from_reader(reader)?)

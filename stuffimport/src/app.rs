@@ -1,6 +1,8 @@
+use postgres_native_tls::MakeTlsConnector;
 use std::{fmt, io};
 
 use logstuff::event::{Event, RsyslogdEvent};
+use logstuff::tls;
 
 use crate::application::{Application, Stopping};
 use crate::cli::Options;
@@ -22,6 +24,7 @@ pub enum Error {
     Io(io::Error),
     Json(serde_json::Error),
     Partition(partition::Error),
+    Tls(tls::Error),
 }
 
 impl Application for App {
@@ -29,7 +32,8 @@ impl Application for App {
 
     fn new(_opts: Options, config: Config) -> Result<Self, Self::Err> {
         env_logger::init();
-        let client = postgres::Client::connect(&config.db_url, postgres::NoTls)?;
+        let connector = MakeTlsConnector::new(config.tls.connector()?);
+        let client = postgres::Client::connect(&config.db_url, connector)?;
 
         // tell rsyslogd that we are ready
         println!("OK");
@@ -130,6 +134,12 @@ impl From<partition::Error> for Error {
     }
 }
 
+impl From<tls::Error> for Error {
+    fn from(error: tls::Error) -> Self {
+        Self::Tls(error)
+    }
+}
+
 impl std::error::Error for Error {}
 
 impl fmt::Display for Error {
@@ -140,6 +150,7 @@ impl fmt::Display for Error {
             Io(e) => write!(f, "I/O Error: {}", e),
             Json(e) => write!(f, "json de-/serialization failed: {}", e),
             Partition(e) => write!(f, "Could not create partitions: {}", e),
+            Tls(e) => write!(f, "TLS Error: {}", e),
         }
     }
 }

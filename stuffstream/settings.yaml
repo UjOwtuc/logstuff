@@ -1,15 +1,28 @@
 # vim: set ft=yaml ts=2 sw=2 et :
-# Example config file for "stuffstream". Given values are defaults. If you
-# don't want to change them you won't need any config file
+# Example config file for "stuffstream"
+
+# TLS settings for connecting to postgres
+tls:
+  # Load client certificate from given PKCS#12 store (default none)
+  # client_cert_store: /path/to/store.pkcs12
+  # client_cert_password: secret passphrase for PKCS#12 store
+
+  # Add trusted root certificates (default empty)
+  ca_certs:
+    - /etc/ssl/certs/postgres-snakeoil.pem
+
+  # Disable trusting system's installed CA certificates (default false)
+  disable_system_trust: false
 
 # Database URL, (see
 # https://docs.rs/postgres/0.19.2/postgres/config/struct.Config.html)
 db_url: >-
   user=stuffstream
   password=stuffstream-password
-  host=127.0.0.1
+  host=localhost
   port=5432
   dbname=log
+  sslmode=require
 
 # Bind server to given address and port
 listen_address: 127.0.0.1:8080
