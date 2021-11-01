@@ -1,7 +1,6 @@
-# example rules for liblognorm
-
-# config format version
 version=2
+
+# example rules for liblognorm
 
 # iptables
 rule=:[%uptime:char-sep:]%] iptables: %.:v2-iptables%
