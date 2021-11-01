@@ -3,6 +3,12 @@ name = "stuffstream"
 version = "0.1.0"
 edition = "2018"
 
+[features]
+default = ["humantime"]
+humantime = ["env_logger/humantime"]
+termcolor = ["env_logger/termcolor"]
+atty = ["env_logger/atty"]
+
 [dependencies]
 logstuff = { path = "../logstuff" }
 futures = "0.3"
@@ -16,7 +22,7 @@ bb8-postgres = "0.7"
 tokio-postgres-rustls = { git = "https://github.com/UjOwtuc/tokio-postgres-rustls.git" }
 rustls = "0.20"
 log = { version = "0.4", features = ["serde"] }
-env_logger = "0.9"
+env_logger = { version = "0.9", default-features = false }
 clap = "2"
 time = { version = "0.3", features = ["serde-human-readable", "macros"] }
 
