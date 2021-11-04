@@ -41,17 +41,8 @@ alter table logs.logs owner to write_logs;
 create index idx_logs_id_tstamp on logs.logs(id, tstamp);
 create index idx_search on logs.logs using GIN(search);
 
-create table logs.logs_2021_10 partition of logs.logs for values from ('2021-10-01') to ('2021-11-01');
-alter table logs.logs_2021_10 owner to write_logs;
-
-create or replace function logs.to_number_or_null(text) returns numeric as $$
-begin
-	return cast($1 as numeric);
-exception
-	when invalid_text_representation then
-		return null;
-end;
-$$ language plpgsql immutable;
+-- create table logs.logs_2021_10 partition of logs.logs for values from ('2021-10-01') to ('2021-11-01');
+-- alter table logs.logs_2021_10 owner to write_logs;
 
 -- thanks to Michael Fuhr (https://www.postgresql.org/message-id/20050810133157.GA46247@winnie.fuhr.org)
 CREATE FUNCTION logs.count_estimate(query text) RETURNS integer AS $$

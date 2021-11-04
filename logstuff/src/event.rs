@@ -306,16 +306,6 @@ fn flatten_value(value: &Value, target: &mut Value, prefix: String, separator: &
                 flatten_value(pair.1, target, subprefix, separator);
             });
         }
-        Value::Array(list) => {
-            list.iter().enumerate().for_each(|pair| {
-                let subprefix = if prefix.is_empty() {
-                    pair.0.to_string()
-                } else {
-                    format!("{}{}{}", prefix, separator, pair.0)
-                };
-                flatten_value(pair.1, target, subprefix, separator);
-            });
-        }
         scalar => target[prefix] = scalar.to_owned(),
     };
 }
@@ -327,6 +317,7 @@ impl From<RsyslogdEvent> for Event {
             "timereported": event.timereported,
             "timegenerated": event.timegenerated,
             "hostname": event.hostname,
+            "inputname": event.inputname,
             "syslogtag": event.syslogtag,
             "fromhost": event.fromhost,
             "fromhost_ip": event.fromhost_ip,
@@ -334,9 +325,21 @@ impl From<RsyslogdEvent> for Event {
             "syslogseverity": event.syslogseverity.to_string(),
             "programname": event.programname,
             "procid": event.procid,
+            "protocol_version": event.protocol_version,
+            "app_name": event.app_name,
         });
+        // Some field were left out do reduce duplication:
+        // * rawmsg
+        // * pri
+        // * structured_data
         if let Some(vars) = event.message_variables {
             flatten_value(&vars, &mut doc, "vars".to_string(), ".");
+        }
+        if let Some(msgid) = event.msgid {
+            doc["msgid"] = msgid.into();
+        }
+        if let Some(uuid) = event.uuid {
+            doc["uuid"] = uuid.into();
         }
 
         Event {

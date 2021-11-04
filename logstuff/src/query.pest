@@ -8,11 +8,15 @@ and_op = { "and" }
 or_op = { "or" }
 
 paren_bool = { "(" ~ expr ~  ")" }
-comp_expr = { field ~ op ~ value }
+comp_expr = {
+    field ~ scalar_op ~ scalar_value
+    | field ~ list_op ~ list_value
+}
 fts = @{ string_literal }
 
 field = @{ (ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "-" | "_" | ".")*) }
-op = { eq | neq | op_in | op_not_in | gte | gt | lte | lt | like | not_like }
+scalar_op = { eq | neq | gte | gt | lte | lt | like | not_like }
+list_op = { eq | neq | op_in | op_not_in }
 eq = { "=" }
 neq = { "!=" | "<>"}
 op_in = { "in" }
@@ -24,10 +28,12 @@ lte = { "<=" }
 like = { "like" }
 not_like = { "not" ~ "like" }
 
-value = {
+scalar_value = {
     string_literal
     | num_literal
-    | string_list
+}
+list_value = {
+    string_list
     | num_list
 }
 

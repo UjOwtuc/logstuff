@@ -151,45 +151,51 @@ async fn fetch_events(
         None => ("1 = 1".to_string(), Vec::new()),
     };
     let table = "tail";
+    let event_limit_param_id = query_params.len() + 1;
+    let start_tstamp_param_id = query_params.len() + 2;
+    let end_tstamp_param_id = query_params.len() + 3;
 
     let fields_query = format!(
         r#"
             select key::varchar, jsonb_object_agg(coalesce(value::text, ''), count::integer) as values from (
                 select row_number() over (
-                partition by key
-                order by count desc) as row_number,
-                count, key, value
+                        partition by key
+                        order by count desc
+                    ) as row_number, count, key, value
                 from (
-                select count(*), key, value
-                from (
-                    select doc
-                    from {}
-                    where {}
-                    order by tstamp desc
-                    limit 500
-                ) limited_logs, jsonb_each_text(doc)
-                group by key, value
-                order by key, count desc
+                    select count(*), key, jsonb_array_elements(
+			case
+                            when jsonb_typeof(value) = 'array' then value
+                            else jsonb_build_array(value)
+			end) #>> '{{}}' as value
+                    from (
+			select doc
+			from {}
+			where {}
+			and tstamp between ${} and ${}
+			order by tstamp desc
+			limit 500
+                    ) limited_logs, jsonb_each(doc)
+                    group by key, value
+                    order by key, count desc
                 ) counted
             ) ranked
             where row_number <= 5
             group by key
         "#,
-        table, expr
+        table, expr, start_tstamp_param_id, end_tstamp_param_id
     );
 
-    let mut next_param_id = query_params.len() + 1;
     let events_query = format!(
         r#"
-    select jsonb_build_object('timestamp', tstamp, 'id', id, 'source', doc) as doc
-    from {}
-    where {}
-    order by tstamp desc
-    limit ${}
+            select jsonb_build_object('timestamp', tstamp, 'id', id, 'source', doc) as doc
+            from {}
+            where {}
+            order by tstamp desc
+            limit ${}
         "#,
-        table, expr, next_param_id,
+        table, expr, event_limit_param_id,
     );
-    next_param_id += 1;
 
     let duration = Duration::new(
         params.end.unix_timestamp() - params.start.unix_timestamp(),
@@ -218,14 +224,14 @@ async fn fetch_events(
             on date_trunc('{}', dt) = l.ld
             order by dt
         "#,
-        next_param_id,
-        next_param_id + 1,
+        start_tstamp_param_id,
+        end_tstamp_param_id,
         trunc,
         trunc,
         table,
         expr,
-        next_param_id,
-        next_param_id + 1,
+        start_tstamp_param_id,
+        end_tstamp_param_id,
         trunc
     );
 

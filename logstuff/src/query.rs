@@ -18,7 +18,7 @@ impl<'i> From<Pair<'i, Rule>> for Value {
     fn from(pair: Pair<'i, Rule>) -> Self {
         match pair.as_rule() {
             Rule::field => Value::Identifier(pair.as_str().to_string()),
-            Rule::value => {
+            Rule::scalar_value | Rule::list_value => {
                 let inner = pair.into_inner().next().unwrap();
                 match inner.as_rule() {
                     Rule::string_literal => {
@@ -53,7 +53,7 @@ enum Expression {
     Fts(String),
 }
 
-pub type QueryParams = Vec<String>;
+pub type QueryParams = Vec<serde_json::Value>;
 
 pub fn parse_query(query: &str) -> Result<(String, QueryParams), Box<dyn Error>> {
     if !query.is_empty() {
@@ -109,36 +109,38 @@ fn consume(pair: Pair<Rule>, climber: &PrecClimber<Rule>) -> Expression {
     }
 }
 
-fn format_operand(operand: Value, param_offset: usize, numeric: bool) -> (String, QueryParams) {
-    match operand {
+fn format_operand(operand: Value, param_offset: usize, primitive: bool) -> (String, QueryParams) {
+    let (expr, param) = match operand {
         Value::Identifier(id) => {
-            let expr = if numeric {
-                format!("try_to_int(doc ->> ${})", param_offset)
+            let expr = if primitive {
+                format!("doc ->> (${}::jsonb #>> '{{}}')", param_offset)
             } else {
-                format!("doc ->> ${}", param_offset)
+                format!("doc -> (${}::jsonb #>> '{{}}')", param_offset)
             };
-            (expr, vec![id])
+            (expr, id.into())
         }
         Value::Scalar(value) => {
-            let expr = if numeric {
-                format!("try_to_int(${})", param_offset)
+            let expr = if primitive {
+                format!("${}::jsonb #>> '{{}}'", param_offset)
             } else {
                 format!("${}", param_offset)
             };
-            (expr, vec![value])
+            (expr, value.into())
         }
         Value::List(list) => {
-            let mut param_num = param_offset;
-            let mut expr = Vec::new();
-            let mut params: QueryParams = Vec::new();
-            list.iter().for_each(|e| {
-                expr.push(format!("${}", param_num));
-                param_num += 1;
-                params.push(e.to_owned());
-            });
-            (format!("({})", expr.join(", ")), params)
+            let expr = if primitive {
+                format!(
+                    "(select jsonb_array_elements(${}::jsonb) #>> '{{}}')",
+                    param_offset
+                )
+            } else {
+                format!("${}::jsonb", param_offset)
+            };
+            (expr, list.into())
         }
-    }
+    };
+
+    (expr, vec![param])
 }
 
 fn walk_tree(
@@ -162,41 +164,40 @@ fn walk_tree(
         }
         Expression::Compare(lhs, op, rhs) => {
             let mut negate = false;
-            let mut numeric_expr = false;
+            let mut primitive_operands = false;
             let op = match op {
-                Rule::eq => "=",
-                Rule::neq => "!=",
-                Rule::op_in => "IN",
+                Rule::eq => "@>",
+                Rule::neq => {
+                    negate = true;
+                    "@>"
+                }
+                Rule::gte => ">=",
+                Rule::gt => ">",
+                Rule::lte => "<=",
+                Rule::lt => "<",
+                Rule::op_in => {
+                    primitive_operands = true;
+                    "IN"
+                }
                 Rule::op_not_in => {
+                    primitive_operands = true;
                     negate = true;
                     "IN"
                 }
-                Rule::gte => {
-                    numeric_expr = true;
-                    ">="
+                Rule::like => {
+                    primitive_operands = true;
+                    "LIKE"
                 }
-                Rule::gt => {
-                    numeric_expr = true;
-                    ">"
-                }
-                Rule::lte => {
-                    numeric_expr = true;
-                    "<="
-                }
-                Rule::lt => {
-                    numeric_expr = true;
-                    "<"
-                }
-                Rule::like => "LIKE",
                 Rule::not_like => {
+                    primitive_operands = true;
                     negate = true;
                     "LIKE"
                 }
                 _ => unreachable!(),
             };
-            let (left_expr, left_params) = format_operand(lhs, param_offset, numeric_expr);
+            let (left_expr, left_params) = format_operand(lhs, param_offset, primitive_operands);
             let (right_expr, right_params) =
-                format_operand(rhs, param_offset + left_params.len(), numeric_expr);
+                format_operand(rhs, param_offset + left_params.len(), primitive_operands);
             let mut params = left_params;
             params.extend(right_params);
             let expr = if negate {
@@ -207,8 +208,11 @@ fn walk_tree(
             Ok((expr, params))
         }
         Expression::Fts(value) => Ok((
-            format!("search @@ websearch_to_tsquery(${})", param_offset),
-            vec![value],
+            format!(
+                "search @@ websearch_to_tsquery(${}::jsonb #>> '{{}}')",
+                param_offset
+            ),
+            vec![value.into()],
         )),
     }
 }
@@ -220,36 +224,60 @@ mod test {
     #[test]
     fn whole_queries() {
         for (query, expression, param_count) in &[
-            ("id = \"value\"", "doc ->> $1 = $2", 2),
-            ("id != \"value\"", "doc ->> $1 != $2", 2),
-            ("id < 123", "try_to_int(doc ->> $1) < try_to_int($2)", 2),
-            ("id <= 1.23", "try_to_int(doc ->> $1) <= try_to_int($2)", 2),
-            ("id > 123", "try_to_int(doc ->> $1) > try_to_int($2)", 2),
-            ("id >= 123", "try_to_int(doc ->> $1) >= try_to_int($2)", 2),
-            ("id like \"value\"", "doc ->> $1 LIKE $2", 2),
-            ("id not like \"value\"", "NOT doc ->> $1 LIKE $2", 2),
-            ("id in (\"a\", \"b\")", "doc ->> $1 IN ($2, $3)", 3),
-            ("id in (1, 2, 3)", "doc ->> $1 IN ($2, $3, $4)", 4),
-            ("id not in (1)", "NOT doc ->> $1 IN ($2)", 2),
-            ("id.with.dots = 1", "doc ->> $1 = $2", 2),
+            ("id = \"value\"", "doc -> ($1::jsonb #>> '{}') @> $2", 2),
+            (
+                "id != \"value\"",
+                "NOT doc -> ($1::jsonb #>> '{}') @> $2",
+                2,
+            ),
+            ("id < 123", "doc -> ($1::jsonb #>> '{}') < $2", 2),
+            ("id <= 1.23", "doc -> ($1::jsonb #>> '{}') <= $2", 2),
+            ("id > 123", "doc -> ($1::jsonb #>> '{}') > $2", 2),
+            ("id >= 123", "doc -> ($1::jsonb #>> '{}') >= $2", 2),
+            (
+                "id like \"value\"",
+                "doc ->> ($1::jsonb #>> '{}') LIKE $2::jsonb #>> '{}'",
+                2,
+            ),
+            (
+                "id not like \"value\"",
+                "NOT doc ->> ($1::jsonb #>> '{}') LIKE $2::jsonb #>> '{}'",
+                2,
+            ),
+            (
+                "id in (\"a\", \"b\")",
+                "doc ->> ($1::jsonb #>> '{}') IN (select jsonb_array_elements($2::jsonb) #>> '{}')",
+                2,
+            ),
+            (
+                "id in (1, 2, 3)",
+                "doc ->> ($1::jsonb #>> '{}') IN (select jsonb_array_elements($2::jsonb) #>> '{}')",
+                2,
+            ),
+            (
+                "id not in (1)",
+                "NOT doc ->> ($1::jsonb #>> '{}') IN (select jsonb_array_elements($2::jsonb) #>> '{}')",
+                2,
+            ),
+            ("id.with.dots = 1", "doc -> ($1::jsonb #>> '{}') @> $2", 2),
             (
                 "id = 1 and id = 1",
-                "(doc ->> $1 = $2 AND doc ->> $3 = $4)",
+                "(doc -> ($1::jsonb #>> '{}') @> $2 AND doc -> ($3::jsonb #>> '{}') @> $4)",
                 4,
             ),
             (
                 "id = 1 or id = 2",
-                "(doc ->> $1 = $2 OR doc ->> $3 = $4)",
+                "(doc -> ($1::jsonb #>> '{}') @> $2 OR doc -> ($3::jsonb #>> '{}') @> $4)",
                 4,
             ),
             (
                 "(id = 1 or id = 2) and (id2 = 1 or id2 = 2)",
-                "((doc ->> $1 = $2 OR doc ->> $3 = $4) AND (doc ->> $5 = $6 OR doc ->> $7 = $8))",
+                "((doc -> ($1::jsonb #>> '{}') @> $2 OR doc -> ($3::jsonb #>> '{}') @> $4) AND (doc -> ($5::jsonb #>> '{}') @> $6 OR doc -> ($7::jsonb #>> '{}') @> $8))",
                 8,
             ),
             (
                 "id = 1 or id = 2 and id2 = 1 or id2 = 2",
-                "((doc ->> $1 = $2 OR (doc ->> $3 = $4 AND doc ->> $5 = $6)) OR doc ->> $7 = $8)",
+                "((doc -> ($1::jsonb #>> '{}') @> $2 OR (doc -> ($3::jsonb #>> '{}') @> $4 AND doc -> ($5::jsonb #>> '{}') @> $6)) OR doc -> ($7::jsonb #>> '{}') @> $8)",
                 8,
             ),
         ] {
@@ -262,11 +290,11 @@ mod test {
     #[test]
     fn operand_formatting() {
         let (expr, params) = format_operand(Value::Identifier("id".into()), 3, false);
-        assert_eq!(expr, "doc ->> $3");
+        assert_eq!(expr, "doc -> ($3::jsonb #>> '{}')");
         assert_eq!(params.len(), 1);
 
         let (expr, params) = format_operand(Value::Identifier("id".into()), 2, true);
-        assert_eq!(expr, "try_to_int(doc ->> $2)");
+        assert_eq!(expr, "doc ->> ($2::jsonb #>> '{}')");
         assert_eq!(params.len(), 1);
 
         let (expr, params) = format_operand(Value::Scalar("scalar".into()), 1, false);
@@ -274,19 +302,19 @@ mod test {
         assert_eq!(params.len(), 1);
 
         let (expr, params) = format_operand(Value::Scalar("scalar".into()), 0, true);
-        assert_eq!(expr, "try_to_int($0)");
+        assert_eq!(expr, "$0::jsonb #>> '{}'");
         assert_eq!(params.len(), 1);
 
         let (expr, params) = format_operand(Value::List(vec!["a".into(), "b".into()]), 33, false);
-        assert_eq!(expr, "($33, $34)");
-        assert_eq!(params.len(), 2);
+        assert_eq!(expr, "$33::jsonb");
+        assert_eq!(params.len(), 1);
 
         let (expr, params) = format_operand(
             Value::List(vec!["a".into(), "b".into(), "c".into()]),
             40,
             true,
         );
-        assert_eq!(expr, "($40, $41, $42)");
-        assert_eq!(params.len(), 3);
+        assert_eq!(expr, "(select jsonb_array_elements($40::jsonb) #>> '{}')");
+        assert_eq!(params.len(), 1);
     }
 }
