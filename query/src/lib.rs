@@ -6,6 +6,7 @@ use std::error::Error;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 
+#[derive(PartialEq)]
 #[repr(u8)]
 pub enum ParseRule {
     Query = 0,
@@ -39,6 +40,10 @@ pub extern "C" fn check_parseable(input_type: ParseRule, text: *const c_char) ->
 }
 
 pub fn try_parse(input_type: ParseRule, s: &str) -> Result<(), usize> {
+    if input_type == ParseRule::Query && s.is_empty() {
+        return Ok(());
+    }
+
     match QueryParser::parse(input_type.rule(), s) {
         Ok(mut pairs) => {
             let span = pairs.next().unwrap().as_span();
