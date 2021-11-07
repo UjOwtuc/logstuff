@@ -11,6 +11,7 @@ atty = ["env_logger/atty"]
 
 [dependencies]
 logstuff = { path = "../logstuff" }
+logstuff-query = { path = "../query" }
 futures = "0.3"
 warp = "0.3"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }

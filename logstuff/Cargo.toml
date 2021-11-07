@@ -3,10 +3,6 @@ name = "logstuff"
 version = "0.1.0"
 edition = "2018"
 
-[[bin]]
-name = "querytest"
-path = "src/bin/querytest.rs"
-
 [lib]
 name = "logstuff"
 path = "src/lib.rs"

@@ -5,8 +5,8 @@ use std::thread;
 use time::macros::format_description;
 
 use logstuff::event::Event;
-use logstuff::query::{parse_query, QueryParams};
 use logstuff::tls::TlsSettings;
+use logstuff_query::{parse_query, QueryParams};
 
 fn max<T>(a: T, b: T) -> T
 where

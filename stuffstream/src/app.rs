@@ -13,9 +13,9 @@ use tokio_postgres_rustls::MakeRustlsConnect;
 use warp::http::{Response, StatusCode};
 use warp::Filter;
 
-use logstuff::query::parse_query;
 use logstuff::serde::de::rfc3339;
 use logstuff::tls;
+use logstuff_query::parse_query;
 
 use crate::application::{Application, Stopping};
 use crate::cli::Options;

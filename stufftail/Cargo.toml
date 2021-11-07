@@ -11,6 +11,7 @@ atty = ["env_logger/atty"]
 
 [dependencies]
 logstuff = { path = "../logstuff" }
+logstuff-query = { path = "../query" }
 serde_json = "1"
 postgres = { version = "0.19", features = ["with-time-0_3", "with-serde_json-1"] }
 postgres-native-tls = "0.5"

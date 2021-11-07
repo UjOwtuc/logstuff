@@ -1,0 +1,19 @@
+[package]
+name = "logstuff-query"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "querytest"
+path = "src/bin/querytest.rs"
+
+[lib]
+name = "logstuff_query"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+serde_json = "1"
+void = "1"
+pest = "2"
+pest_derive = "2"
+
