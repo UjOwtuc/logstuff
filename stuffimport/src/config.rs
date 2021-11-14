@@ -9,6 +9,7 @@ pub struct Config {
     pub db_url: String,
     pub partitions: Vec<Box<dyn Partitioner>>,
     pub tls: TlsSettings,
+    pub use_vars_msg: bool,
 }
 
 impl Default for Config {
@@ -19,7 +20,8 @@ impl Default for Config {
                 Box::new(partition::Root::default()),
                 Box::new(partition::Timerange::default()),
             ],
-            tls: TlsSettings::default()
+            tls: TlsSettings::default(),
+            use_vars_msg: true,
         }
     }
 }

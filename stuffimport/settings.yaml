@@ -1,6 +1,12 @@
 # vim: set ft=yaml ts=2 sw=2 et :
 # Example config file for "stuffimport"
 
+# rsyslog forbids changing the property "msg" of an event. To allow rewriting
+# of log events, stuffimport may use a json attribute (rsyslog: $!msg, logstuff
+# query: vars.msg) instead of an event's msg. If enabled and an events contains
+# vars.msg, msg becomes vars.msg and vice versa.
+use_vars_msg: true
+
 # TLS settings for connecting to postgres
 tls:
   # Load client certificate from given PKCS#12 store (default none)

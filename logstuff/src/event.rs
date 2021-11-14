@@ -243,7 +243,7 @@ pub struct RsyslogdEvent {
     message_variables: Option<Value>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Event {
     pub timestamp: OffsetDateTime,
     pub doc: Value,

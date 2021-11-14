@@ -15,6 +15,7 @@ use crate::partition::{self, Partitioner};
 pub struct App {
     client: postgres::Client,
     partitions: Vec<Box<dyn partition::Partitioner>>,
+    use_vars_msg: bool,
 }
 
 /// Error type for the core program logic
@@ -41,6 +42,7 @@ impl Application for App {
         Ok(App {
             client,
             partitions: config.partitions,
+            use_vars_msg: config.use_vars_msg,
         })
     }
 
@@ -77,6 +79,17 @@ impl App {
     }
 
     fn insert_event(&mut self, event: &Event) -> Result<(), Error> {
+        let mut changed_event;
+        let event = if self.use_vars_msg && event.get_printable("vars.msg").is_some() {
+            changed_event = event.clone();
+            let old_msg = changed_event.get_printable("msg").unwrap();
+            changed_event.doc["msg"] = changed_event.get_printable("vars.msg").unwrap().into();
+            changed_event.doc["vars.msg"] = old_msg.into();
+            &changed_event
+        } else {
+            event
+        };
+
         let search = event.search_string();
         if self.insert_single_shot(event, &search).is_err() {
             info!("Event insertion failed, trying to create missing partitions");
