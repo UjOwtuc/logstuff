@@ -10,6 +10,7 @@ pub struct Config {
     pub partitions: Vec<Box<dyn Partitioner>>,
     pub tls: TlsSettings,
     pub use_vars_msg: bool,
+    pub statement_cache_size: usize,
 }
 
 impl Default for Config {
@@ -22,6 +23,7 @@ impl Default for Config {
             ],
             tls: TlsSettings::default(),
             use_vars_msg: true,
+            statement_cache_size: 3,
         }
     }
 }

@@ -30,6 +30,11 @@ db_url: >-
   dbname=log
   target_session_attrs=read-write
 
+# LRU cache for prepared INSERT statements (default 3).
+# stuffimport will use exactly one statement per root table name, so you will
+# usually need only one.
+statement_cache_size: 3
+
 # Log table partitioning ordered from root to leaf (meaning: each entry defines
 # partitions of the previous entry). Possible kinds so far:
 # * root: Single table. This is the only valid option for the first entry and

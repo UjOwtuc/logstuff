@@ -1,3 +1,4 @@
+use lru_cache::LruCache;
 use postgres_native_tls::MakeTlsConnector;
 use std::{fmt, io};
 
@@ -16,6 +17,7 @@ pub struct App {
     client: postgres::Client,
     partitions: Vec<Box<dyn partition::Partitioner>>,
     use_vars_msg: bool,
+    prepared_inserts: LruCache<String, postgres::Statement>,
 }
 
 /// Error type for the core program logic
@@ -43,6 +45,7 @@ impl Application for App {
             client,
             partitions: config.partitions,
             use_vars_msg: config.use_vars_msg,
+            prepared_inserts: LruCache::new(config.statement_cache_size),
         })
     }
 
@@ -67,12 +70,22 @@ impl Application for App {
 impl App {
     fn insert_single_shot(&mut self, event: &Event, search: &str) -> Result<(), Error> {
         let root_table = self.partitions[0].table_name(event)?;
+        if !self.prepared_inserts.contains_key(&root_table) {
+            info!("Preparing insert statement for root table {}", root_table);
+            self.prepared_inserts.insert(
+                root_table.to_owned(),
+                self.client.prepare(
+                    format!(
+                        "insert into {} (tstamp, doc, search) values ($1, $2, to_tsvector($3))",
+                        root_table
+                    )
+                    .as_str(),
+                )?,
+            );
+        }
+
         self.client.execute(
-            format!(
-                "insert into {} (tstamp, doc, search) values ($1, $2, to_tsvector($3))",
-                root_table
-            )
-            .as_str(),
+            self.prepared_inserts.get_mut(&root_table).unwrap(),
             &[&event.timestamp, &event.doc, &search],
         )?;
         Ok(())
