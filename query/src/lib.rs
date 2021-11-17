@@ -27,12 +27,11 @@ impl ParseRule {
     }
 }
 
+/// # Safety
+/// C interface only. Do not use this in rust code.
 #[no_mangle]
-pub extern "C" fn check_parseable(input_type: ParseRule, text: *const c_char) -> i32 {
-    let s: String;
-    unsafe {
-        s = CStr::from_ptr(text).to_string_lossy().into_owned();
-    }
+pub unsafe extern "C" fn check_parseable(input_type: ParseRule, text: *const c_char) -> i32 {
+    let s = CStr::from_ptr(text).to_string_lossy().into_owned();
     match try_parse(input_type, &s) {
         Ok(_) => -1,
         Err(pos) => pos.try_into().unwrap_or(0),
