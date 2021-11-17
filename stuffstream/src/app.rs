@@ -6,7 +6,6 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::convert::Infallible;
 use std::iter::Iterator;
-use std::net::SocketAddr;
 use std::{fmt, io};
 use time::{macros::format_description, Duration, OffsetDateTime, UtcOffset};
 use tokio_postgres_rustls::MakeRustlsConnect;
@@ -19,16 +18,16 @@ use logstuff_query::parse_query;
 
 use crate::application::{Application, Stopping};
 use crate::cli::Options;
-use crate::config::Config;
+use crate::config::{Config, HttpSettings, TlsClientAuth};
 
 /// Core program logic
 ///
 /// Must implement the `Application` trait.
 pub struct App {
     auto_restart: bool,
-    listen_address: SocketAddr,
     db_url: String,
-    tls_config: tls::ClientConfig,
+    postgres_tls: tls::ClientConfig,
+    http_settings: HttpSettings,
 }
 
 /// Error type for the core program logic
@@ -57,9 +56,9 @@ impl Application for App {
         env_logger::try_init()?;
         Ok(App {
             auto_restart: config.auto_restart,
-            listen_address: config.listen_address,
             db_url: config.db_url,
-            tls_config: config.tls.client_config()?,
+            postgres_tls: config.postgres_tls.client_config()?,
+            http_settings: config.http_settings,
         })
     }
 
@@ -69,9 +68,9 @@ impl Application for App {
             .build()
             .unwrap()
             .block_on(start_server(
-                &self.listen_address,
+                &self.http_settings,
                 &self.db_url,
-                &self.tls_config,
+                &self.postgres_tls,
             ))?;
 
         if self.auto_restart {
@@ -85,11 +84,11 @@ impl Application for App {
 impl App {}
 
 async fn start_server(
-    listen_address: &SocketAddr,
+    http_settings: &HttpSettings,
     db_url: &str,
-    tls_config: &ClientConfig,
+    postgres_tls: &ClientConfig,
 ) -> Result<(), Error> {
-    let connector = MakeRustlsConnect::new(tls_config.clone());
+    let connector = MakeRustlsConnect::new(postgres_tls.clone());
     let manager = PostgresConnectionManager::new_from_stringlike(db_url, connector)?;
     let dbpool = bb8::Pool::builder()
         .max_size(3)
@@ -103,7 +102,28 @@ async fn start_server(
         .and(with_db(dbpool.clone()))
         .and_then(events_handler);
 
-    warp::serve(events).run(*listen_address).await;
+    let server = warp::serve(events);
+    if http_settings.use_tls {
+        let server = server
+            .tls()
+            .cert_path(&http_settings.tls_cert)
+            .key_path(&http_settings.tls_key);
+
+        match &http_settings.tls_client_auth {
+            None => server,
+            Some(TlsClientAuth::Required { trusted_certs }) => {
+                server.client_auth_required_path(trusted_certs)
+            }
+            Some(TlsClientAuth::Optional { trusted_certs }) => {
+                server.client_auth_optional_path(trusted_certs)
+            }
+        }
+        .run(http_settings.listen_address)
+        .await;
+    } else {
+        server.run(http_settings.listen_address).await;
+    }
+
     Ok(())
 }
 

@@ -1,7 +1,7 @@
 [package]
 name = "stuffstream"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 [features]
 default = ["humantime"]
@@ -13,14 +13,14 @@ atty = ["env_logger/atty"]
 logstuff = { path = "../logstuff" }
 logstuff-query = { path = "../query" }
 futures = "0.3"
-warp = "0.3"
+warp = { version = "0.3", features = ["tls"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_derive = "1"
 serde_json = "1"
 serde_yaml = "0.8"
 bb8-postgres = "0.7"
-tokio-postgres-rustls = { git = "https://github.com/UjOwtuc/tokio-postgres-rustls.git" }
+tokio-postgres-rustls = "0.9"
 rustls = "0.20"
 log = { version = "0.4", features = ["serde"] }
 env_logger = { version = "0.9", default-features = false }

@@ -2,10 +2,11 @@
 # Example config file for "stuffstream"
 
 # TLS settings for connecting to postgres
-tls:
-  # Load client certificate from given PKCS#12 store (default none)
-  # client_cert_store: /path/to/store.pkcs12
-  # client_cert_password: secret passphrase for PKCS#12 store
+postgres_tls:
+  # Load client certificate from given PEM encoded files (default none)
+  # private_cert: /path/to/certificate.pem
+  # private_key: /path/to/private_key.pem
+  # private_key_password: secret passphrase private key (if needed)
 
   # Add trusted root certificates (default empty)
   ca_certs:
@@ -13,6 +14,24 @@ tls:
 
   # Disable trusting system's installed CA certificates (default false)
   disable_system_trust: false
+
+# Settings for the HTTP server
+http_settings:
+  # Bind server to given address and port
+  listen_address: 127.0.0.1:8080
+
+  # Listen for HTTPS requests only (default false)
+  # If set, you need to provide a server certificate and private key, too
+  use_tls: true
+
+  # Load server certificate and private key from given PEM encoded files
+  # (default empty). Used only if "use_tls" ist set.
+  tls_cert: server.crt
+  tls_key: server.key
+
+  # tls_client_auth:
+  #   type: Required
+  #   trusted_certs: /path/to/bundle.crt
 
 # Database URL, (see
 # https://docs.rs/postgres/0.19.2/postgres/config/struct.Config.html)
@@ -23,9 +42,6 @@ db_url: >-
   port=5432
   dbname=log
   sslmode=require
-
-# Bind server to given address and port
-listen_address: 127.0.0.1:8080
 
 # Automatically restart server on non-critical errors (won't happen, errors are
 # either within a request and won't terminate the server or fatal)

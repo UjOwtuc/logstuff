@@ -1,16 +1,17 @@
-use log::{debug, error};
-use native_tls::{Certificate, Identity, TlsConnector};
-use rustls::{OwnedTrustAnchor, RootCertStore};
+use log::{debug, error, warn};
+use native_tls::{Identity, TlsConnector};
+use rustls::{Certificate, OwnedTrustAnchor, RootCertStore};
+use rustls_pemfile::{read_one, Item};
 use serde_derive::{Deserialize, Serialize};
-use std::{fmt, fs};
+use std::{fmt, fs, io, iter};
 
-pub use rustls::ClientConfig;
+pub use rustls::{ClientConfig, ServerConfig};
 
 #[derive(Debug)]
 pub enum Error {
     Io(std::io::Error),
     Tls(native_tls::Error),
-    Pem(pem::PemError),
+    Rustls(rustls::Error),
 }
 
 impl std::error::Error for Error {}
@@ -18,8 +19,8 @@ impl std::error::Error for Error {}
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct TlsSettings {
-    pub client_cert_store: String,
-    pub client_cert_password: String,
+    pub private_cert: String,
+    pub private_key: String,
     pub ca_certs: Vec<String>,
     pub disable_system_trust: bool,
     pub accept_invalid_hostnames: bool,
@@ -28,8 +29,8 @@ pub struct TlsSettings {
 impl Default for TlsSettings {
     fn default() -> Self {
         TlsSettings {
-            client_cert_store: "".into(),
-            client_cert_password: "".into(),
+            private_cert: "".into(),
+            private_key: "".into(),
             ca_certs: Vec::new(),
             disable_system_trust: false,
             accept_invalid_hostnames: false,
@@ -38,7 +39,7 @@ impl Default for TlsSettings {
 }
 
 impl TlsSettings {
-    pub fn client_config(&self) -> Result<ClientConfig, Error> {
+    pub fn root_trust_store(&self) -> Result<RootCertStore, Error> {
         let mut root_store = RootCertStore::empty();
 
         if !self.disable_system_trust {
@@ -54,23 +55,41 @@ impl TlsSettings {
             ));
         }
 
+        self.load_trusted_certs()?.into_iter().for_each(|cert| {
+            root_store.add_parsable_certificates(&[cert.0]);
+        });
+        Ok(root_store)
+    }
+
+    pub fn load_trusted_certs(&self) -> Result<Vec<Certificate>, Error> {
+        let mut result = Vec::new();
         self.ca_certs
             .iter()
             .try_for_each(|file| -> Result<(), Error> {
                 debug!("Adding trust anchors from {}", file);
-                let cert = fs::read(file)?;
-                let data = pem::parse_many(cert)?;
-                data.iter().for_each(|entry| {
-                    root_store.add_parsable_certificates(&[entry.contents.to_vec()]);
-                });
+                let cert = fs::File::open(file)?;
+                let mut reader = io::BufReader::new(cert);
+                for item in iter::from_fn(|| read_one(&mut reader).transpose()) {
+                    match item? {
+                        Item::X509Certificate(cert) => {
+                            result.push(Certificate(cert));
+                        }
+                        Item::RSAKey(_) | Item::PKCS8Key(_) => {
+                            warn!("Ignoring private key in trusted certificates");
+                        }
+                    };
+                }
                 Ok(())
             })?;
+        Ok(result)
+    }
 
+    pub fn client_config(&self) -> Result<ClientConfig, Error> {
         let builder = ClientConfig::builder()
             .with_safe_defaults()
-            .with_root_certificates(root_store);
+            .with_root_certificates(self.root_trust_store()?);
 
-        if self.client_cert_store.is_empty() {
+        if self.private_cert.is_empty() {
             Ok(builder.with_no_client_auth())
         } else {
             error!("Client certificate authentication is not implemented yet");
@@ -80,10 +99,14 @@ impl TlsSettings {
 
     pub fn connector(&self) -> Result<TlsConnector, Error> {
         let mut connector = TlsConnector::builder();
-        if !self.client_cert_store.is_empty() {
-            debug!("Loading client certificate from {}", self.client_cert_store);
-            let der = fs::read(&self.client_cert_store)?;
-            connector.identity(Identity::from_pkcs12(&der, &self.client_cert_password)?);
+        if !self.private_cert.is_empty() {
+            debug!(
+                "Loading client certificate and key from {} and {}",
+                self.private_cert, self.private_key
+            );
+            // TODO load PEMs
+            let der = fs::read(&self.private_cert)?;
+            connector.identity(Identity::from_pkcs12(&der, "")?);
         }
 
         self.ca_certs
@@ -91,7 +114,7 @@ impl TlsSettings {
             .try_for_each(|file| -> Result<(), Error> {
                 debug!("Loading trusted certificate {}", file);
                 let cert = fs::read(file)?;
-                let cert = Certificate::from_pem(&cert)?;
+                let cert = native_tls::Certificate::from_pem(&cert)?;
                 connector.add_root_certificate(cert);
                 Ok(())
             })?;
@@ -115,9 +138,9 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<pem::PemError> for Error {
-    fn from(error: pem::PemError) -> Self {
-        Self::Pem(error)
+impl From<rustls::Error> for Error {
+    fn from(error: rustls::Error) -> Self {
+        Self::Rustls(error)
     }
 }
 
