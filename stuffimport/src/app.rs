@@ -1,5 +1,6 @@
 use lru_cache::LruCache;
 use postgres_native_tls::MakeTlsConnector;
+use std::io::Write as _;
 use std::{fmt, io};
 
 use logstuff::event::{Event, RsyslogdEvent};
@@ -39,7 +40,7 @@ impl Application for App {
         let client = postgres::Client::connect(&config.db_url, connector)?;
 
         // tell rsyslogd that we are ready
-        println!("OK");
+        writeln!(io::stdout(), "OK")?;
 
         Ok(App {
             client,
@@ -128,7 +129,7 @@ impl App {
             Ok(rsyslog_event) => {
                 let stuff_event: Event = rsyslog_event.into();
                 self.insert_event(&stuff_event)?;
-                println!("OK");
+                writeln!(io::stdout(), "OK")?;
             }
             Err(error) => error!("could not parse event: '{}': {}", line, error),
         }
