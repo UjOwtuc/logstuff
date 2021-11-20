@@ -1,0 +1,75 @@
+// vim: ft=rust :
+use std::str::FromStr;
+
+use crate::ast::{Scalar, Operator, Value, Expression};
+
+grammar;
+
+pub Scalar: Scalar = {
+    <r"(0|-?[1-9][0-9]*)"> => Scalar::Int(i64::from_str(<>).unwrap()),
+    <r"-?[0-9]+\.[0-9]+"> => Scalar::Float(f64::from_str(<>).unwrap()),
+    StringLiteral => Scalar::Text(<>),
+}
+
+StringLiteral: String = {
+    <s:r#""([^\\"]|\\[tnr\\"])*""#> =>
+        s[1..s.len() - 1]
+            .replace("\\\"", "\"")
+            .replace("\\t", "\t")
+            .replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace("\\\\", "\\"),
+    <s:r#"'([^\\']|\\[tnr\\'])*'"#> =>
+        s[1..s.len() - 1]
+            .replace("\\'", "'")
+            .replace("\\t", "\t")
+            .replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace("\\\\", "\\"),
+};
+
+pub List: Vec<Scalar> = {
+    "()" => Vec::new(),
+    "(" <mut v:(<Scalar> ",")*> <e:Scalar> ")" => {
+        v.push(e);
+        v
+    }
+};
+
+pub Identifier: String = <r"[a-zA-Z_][\w\d._-]*"> => <>.to_owned();
+
+Operator: Operator = {
+    "=" => Operator::Eq,
+    "<" => Operator::Lt,
+    "<=" => Operator::Le,
+    ">" => Operator::Gt,
+    ">=" => Operator::Ge,
+    "like" => Operator::Like,
+    "in" => Operator::In,
+}
+
+pub Term: Box<Expression> = {
+    <id:Identifier> <op:Operator> <v:Scalar> => Box::new(Expression::Compare(id, op, Value::Scalar(v))),
+    <id:Identifier> <op:Operator> <v:List> => Box::new(Expression::Compare(id, op, Value::List(v))),
+    <StringLiteral> => Box::new(Expression::FullTextSearch(<>)),
+}
+
+pub Expression: Box<Expression> = {
+    <lhs:Expression> "or" <rhs:AndExpr> => Box::new(Expression::Or(lhs, rhs)),
+    AndExpr,
+}
+
+AndExpr: Box<Expression> = {
+    <lhs:AndExpr> "and" <rhs:NegatedExpr> => Box::new(Expression::And(lhs, rhs)),
+    NegatedExpr,
+}
+
+NegatedExpr: Box<Expression> = {
+    "not" <expr:ParenthesizedExpr> => Box::new(Expression::Not(expr)),
+    ParenthesizedExpr,
+}
+
+ParenthesizedExpr: Box<Expression> = {
+    "(" <e:Expression> ")" => e,
+    Term,
+}
