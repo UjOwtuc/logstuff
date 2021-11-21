@@ -1,17 +1,25 @@
 // vim: ft=rust :
 use std::str::FromStr;
 
-use crate::ast::{Scalar, Operator, Value, Expression};
+use crate::ast;
 
 grammar;
 
-pub Scalar: Scalar = {
-    <r"(0|-?[1-9][0-9]*)"> => Scalar::Int(i64::from_str(<>).unwrap()),
-    <r"-?[0-9]+\.[0-9]+"> => Scalar::Float(f64::from_str(<>).unwrap()),
-    StringLiteral => Scalar::Text(<>),
+pub Identifier: String = <r"[a-zA-Z_][a-zA-Z0-9._-]*"> => <>.to_string();
+
+Operator: ast::Operator = {
+    "=" => ast::Operator::Eq,
+    "<" => ast::Operator::Lt,
+    "<=" => ast::Operator::Le,
+    ">" => ast::Operator::Gt,
+    ">=" => ast::Operator::Ge,
+    "like" => ast::Operator::Like,
+    "in" => ast::Operator::In,
 }
 
-StringLiteral: String = {
+Integer: i64 = <r"(0|-?[1-9][0-9]*)"> => i64::from_str(<>).unwrap();
+Float: f64 = <r"-?(0|[1-9][0-9]*)\.[0-9]+"> => f64::from_str(<>).unwrap();
+QuotedString: String = {
     <s:r#""([^\\"]|\\[tnr\\"])*""#> =>
         s[1..s.len() - 1]
             .replace("\\\"", "\"")
@@ -28,7 +36,13 @@ StringLiteral: String = {
             .replace("\\\\", "\\"),
 };
 
-pub List: Vec<Scalar> = {
+pub Scalar: ast::Scalar = {
+    Integer => ast::Scalar::from(<>),
+    Float => ast::Scalar::from(<>),
+    QuotedString => ast::Scalar::from(<>),
+}
+
+pub List: Vec<ast::Scalar> = {
     "()" => Vec::new(),
     "(" <mut v:(<Scalar> ",")*> <e:Scalar> ")" => {
         v.push(e);
@@ -36,40 +50,28 @@ pub List: Vec<Scalar> = {
     }
 };
 
-pub Identifier: String = <r"[a-zA-Z_][a-zA-Z0-9._-]*"> => <>.to_owned();
-
-Operator: Operator = {
-    "=" => Operator::Eq,
-    "<" => Operator::Lt,
-    "<=" => Operator::Le,
-    ">" => Operator::Gt,
-    ">=" => Operator::Ge,
-    "like" => Operator::Like,
-    "in" => Operator::In,
+pub Term: Box<ast::Expression> = {
+    <id:Identifier> <op:Operator> <v:Scalar> => Box::new(ast::Expression::Compare(id, op, ast::Value::Scalar(v))),
+    <id:Identifier> <op:Operator> <v:List> => Box::new(ast::Expression::Compare(id, op, ast::Value::List(v))),
+    <QuotedString> => Box::new(ast::Expression::FullTextSearch(<>)),
 }
 
-pub Term: Box<Expression> = {
-    <id:Identifier> <op:Operator> <v:Scalar> => Box::new(Expression::Compare(id, op, Value::Scalar(v))),
-    <id:Identifier> <op:Operator> <v:List> => Box::new(Expression::Compare(id, op, Value::List(v))),
-    <StringLiteral> => Box::new(Expression::FullTextSearch(<>)),
-}
-
-pub Expression: Box<Expression> = {
-    <lhs:Expression> "or" <rhs:AndExpr> => Box::new(Expression::Or(lhs, rhs)),
+pub Expression: Box<ast::Expression> = {
+    <lhs:Expression> "or" <rhs:AndExpr> => Box::new(ast::Expression::Or(lhs, rhs)),
     AndExpr,
 }
 
-AndExpr: Box<Expression> = {
-    <lhs:AndExpr> "and" <rhs:NegatedExpr> => Box::new(Expression::And(lhs, rhs)),
+AndExpr: Box<ast::Expression> = {
+    <lhs:AndExpr> "and" <rhs:NegatedExpr> => Box::new(ast::Expression::And(lhs, rhs)),
     NegatedExpr,
 }
 
-NegatedExpr: Box<Expression> = {
-    "not" <expr:ParenthesizedExpr> => Box::new(Expression::Not(expr)),
+NegatedExpr: Box<ast::Expression> = {
+    "not" <expr:ParenthesizedExpr> => Box::new(ast::Expression::Not(expr)),
     ParenthesizedExpr,
 }
 
-ParenthesizedExpr: Box<Expression> = {
+ParenthesizedExpr: Box<ast::Expression> = {
     "(" <e:Expression> ")" => e,
     Term,
 }

@@ -9,7 +9,7 @@ pub use ast::QueryParams;
 
 lalrpop_mod!(
     #[allow(clippy::all)]
-    query
+    pub query
 );
 
 pub struct ExpressionParser {
@@ -152,6 +152,7 @@ mod test {
         assert_eq!(p.parse("5.0").unwrap(), Scalar::from(5.0));
         assert_eq!(p.parse("12340.321").unwrap(), Scalar::from(12340.321));
         assert!(p.parse("1.").is_err());
+        assert!(p.parse("00.1").is_err());
     }
 
     #[test]
