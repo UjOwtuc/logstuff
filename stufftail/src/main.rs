@@ -6,7 +6,7 @@ use time::macros::format_description;
 
 use logstuff::event::Event;
 use logstuff::tls::TlsSettings;
-use logstuff_query::{parse_query, QueryParams};
+use logstuff_query::{ExpressionParser, QueryParams};
 
 fn max<T>(a: T, b: T) -> T
 where
@@ -112,7 +112,10 @@ impl Settings {
             .get_matches();
 
         let (query_expr, query_params) = match matches.value_of("query") {
-            Some(query) => parse_query(query).unwrap(),
+            Some(query) => {
+                let parser = ExpressionParser::default();
+                parser.to_sql(query).unwrap()
+            }
             None => ("1 = 1".to_string(), Vec::new()),
         };
 

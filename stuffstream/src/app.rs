@@ -1,20 +1,22 @@
 use bb8_postgres::tokio_postgres::{self, types::ToSql, IsolationLevel};
 use bb8_postgres::{bb8, PostgresConnectionManager};
+use futures::lock::Mutex;
 use futures::TryStreamExt;
 use rustls::client::ClientConfig;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::convert::Infallible;
 use std::iter::Iterator;
+use std::sync::Arc;
 use std::{fmt, io};
 use time::{macros::format_description, Duration, OffsetDateTime, UtcOffset};
 use tokio_postgres_rustls::MakeRustlsConnect;
 use warp::http::{Response, StatusCode};
-use warp::Filter;
+use warp::{reject, reply, Filter, Rejection, Reply};
 
 use logstuff::serde::de::rfc3339;
 use logstuff::tls;
-use logstuff_query::parse_query;
+use logstuff_query::ExpressionParser;
 
 use crate::application::{Application, Stopping};
 use crate::cli::Options;
@@ -83,6 +85,25 @@ impl Application for App {
 
 impl App {}
 
+#[derive(Debug)]
+struct MalformedQuery;
+
+impl reject::Reject for MalformedQuery {}
+
+async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
+    if err.is_not_found() {
+        Ok(reply::with_status("NOT_FOUND", StatusCode::NOT_FOUND))
+    } else if err.find::<MalformedQuery>().is_some() {
+        Ok(reply::with_status("BAD_REQUEST", StatusCode::BAD_REQUEST))
+    } else {
+        error!("unhandled rejection: {:?}", err);
+        Ok(reply::with_status(
+            "INTERNAL_SERVER_ERROR",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ))
+    }
+}
+
 async fn start_server(
     http_settings: &HttpSettings,
     db_url: &str,
@@ -96,11 +117,15 @@ async fn start_server(
         .await
         .unwrap();
 
+    let parser = Arc::new(Mutex::new(ExpressionParser::default()));
+
     let events = warp::get()
         .and(warp::path("events"))
+        .map(move || parser.clone())
         .and(warp::query::<EventsRequest>())
         .and(with_db(dbpool.clone()))
-        .and_then(events_handler);
+        .and_then(events_handler)
+        .recover(handle_rejection);
 
     let server = warp::serve(events);
     if http_settings.use_tls {
@@ -128,19 +153,29 @@ async fn start_server(
 }
 
 async fn events_handler(
+    parser: Arc<Mutex<ExpressionParser>>,
     params: EventsRequest,
     db: DBPool,
 ) -> Result<impl warp::Reply, warp::Rejection> {
+    let p = parser.lock().await;
+    let (query, query_params) = if let Some(query) = &params.query {
+        p.to_sql(query).map_err(|_| MalformedQuery)?
+    } else {
+        ("1 = 1".into(), Vec::new())
+    };
+    drop(p);
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(warp::hyper::Body::wrap_stream(
-            fetch_events(params, db).await,
+            fetch_events(query, query_params, params, db).await,
         ))
         .unwrap())
 }
 
 async fn fetch_events(
+    expr: String,
+    query_params: Vec<Value>,
     params: EventsRequest,
     db: DBPool,
 ) -> impl futures::Stream<Item = Result<String, impl std::error::Error>> {
@@ -166,10 +201,6 @@ async fn fetch_events(
         ).as_str(), &[]
     ).await.unwrap();
 
-    let (expr, query_params) = match params.query {
-        Some(query) => parse_query(&query).unwrap(),
-        None => ("1 = 1".to_string(), Vec::new()),
-    };
     let table = "tail";
     let event_limit_param_id = query_params.len() + 1;
     let start_tstamp_param_id = query_params.len() + 2;

@@ -12,13 +12,26 @@ lalrpop_mod!(
     query
 );
 
-pub fn parse_query(query: &str) -> Result<(String, QueryParams), ParseError> {
-    if query.is_empty() {
-        Ok(("1 = 1".into(), QueryParams::new()))
-    } else {
-        let parser = query::ExpressionParser::new();
-        let tree = parser.parse(&query.to_owned())?;
-        Ok(tree.to_sql_query(1))
+pub struct ExpressionParser {
+    parser: query::ExpressionParser,
+}
+
+impl Default for ExpressionParser {
+    fn default() -> Self {
+        Self {
+            parser: query::ExpressionParser::new(),
+        }
+    }
+}
+
+impl ExpressionParser {
+    pub fn to_sql(&self, text: &str) -> Result<(String, QueryParams), ParseError> {
+        if text.is_empty() {
+            Ok(("1 = 1".into(), QueryParams::new()))
+        } else {
+            let tree = self.parser.parse(&text.to_owned())?;
+            Ok(tree.to_sql_query(1))
+        }
     }
 }
 

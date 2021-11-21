@@ -36,7 +36,7 @@ pub List: Vec<Scalar> = {
     }
 };
 
-pub Identifier: String = <r"[a-zA-Z_][\w\d._-]*"> => <>.to_owned();
+pub Identifier: String = <r"[a-zA-Z_][a-zA-Z0-9._-]*"> => <>.to_owned();
 
 Operator: Operator = {
     "=" => Operator::Eq,
