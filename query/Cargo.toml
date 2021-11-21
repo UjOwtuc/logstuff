@@ -11,10 +11,17 @@ path = "src/bin/querytest.rs"
 name = "logstuff_query"
 crate-type = ["rlib", "cdylib"]
 
+[[bench]]
+name = "parse"
+harness = false
+
 [dependencies]
 serde_json = "1"
 lalrpop-util = "0.19"
 
 [build-dependencies]
 lalrpop = "0.19"
+
+[dev-dependencies]
+criterion = "0.3"
 
