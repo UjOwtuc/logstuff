@@ -1,4 +1,4 @@
-use bb8_postgres::tokio_postgres::{self, types::ToSql, IsolationLevel};
+use bb8_postgres::tokio_postgres::{self, types::ToSql};
 use bb8_postgres::{bb8, PostgresConnectionManager};
 use futures::lock::Mutex;
 use futures::TryStreamExt;
@@ -9,7 +9,7 @@ use std::convert::Infallible;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::{fmt, io};
-use time::{macros::format_description, Duration, OffsetDateTime, UtcOffset};
+use time::{Duration, OffsetDateTime};
 use tokio_postgres_rustls::MakeRustlsConnect;
 use warp::http::{Response, StatusCode};
 use warp::{reject, reply, Filter, Rejection, Reply};
@@ -30,6 +30,7 @@ pub struct App {
     db_url: String,
     postgres_tls: tls::ClientConfig,
     http_settings: HttpSettings,
+    table_name: String,
 }
 
 /// Error type for the core program logic
@@ -61,6 +62,7 @@ impl Application for App {
             db_url: config.db_url,
             postgres_tls: config.postgres_tls.client_config()?,
             http_settings: config.http_settings,
+            table_name: config.root_table_name,
         })
     }
 
@@ -73,6 +75,7 @@ impl Application for App {
                 &self.http_settings,
                 &self.db_url,
                 &self.postgres_tls,
+                &self.table_name,
             ))?;
 
         if self.auto_restart {
@@ -108,6 +111,7 @@ async fn start_server(
     http_settings: &HttpSettings,
     db_url: &str,
     postgres_tls: &ClientConfig,
+    table_name: &str,
 ) -> Result<(), Error> {
     let connector = MakeRustlsConnect::new(postgres_tls.clone());
     let manager = PostgresConnectionManager::new_from_stringlike(db_url, connector)?;
@@ -119,12 +123,14 @@ async fn start_server(
 
     let parser = Arc::new(Mutex::new(ExpressionParser::default()));
 
+    let table_name = table_name.to_owned();
     let events = warp::get()
         .and(warp::path("events"))
-        .map(move || parser.clone())
         .and(warp::query::<EventsRequest>())
         .and(with_db(dbpool.clone()))
-        .and_then(events_handler)
+        .and_then(move |params, dbpool| {
+            events_handler(parser.clone(), table_name.to_owned(), params, dbpool)
+        })
         .recover(handle_rejection);
 
     let server = warp::serve(events);
@@ -154,6 +160,7 @@ async fn start_server(
 
 async fn events_handler(
     parser: Arc<Mutex<ExpressionParser>>,
+    table_name: String,
     params: EventsRequest,
     db: DBPool,
 ) -> Result<impl warp::Reply, warp::Rejection> {
@@ -168,7 +175,7 @@ async fn events_handler(
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(warp::hyper::Body::wrap_stream(
-            fetch_events(query, query_params, params, db).await,
+            fetch_events(query, query_params, table_name, params, db).await,
         ))
         .unwrap())
 }
@@ -176,32 +183,12 @@ async fn events_handler(
 async fn fetch_events(
     expr: String,
     query_params: Vec<Value>,
+    table: String,
     params: EventsRequest,
     db: DBPool,
 ) -> impl futures::Stream<Item = Result<String, impl std::error::Error>> {
     println!("{:?}", params);
-    let mut conn = db.get().await.unwrap();
-    let transaction = conn
-        .build_transaction()
-        .isolation_level(IsolationLevel::RepeatableRead)
-        .start()
-        .await
-        .unwrap();
-    transaction
-        .execute("drop view if exists tail", &[])
-        .await
-        .unwrap();
-
-    let rfc3339_format = format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]Z");
-    transaction.execute(
-        format!(
-            "create temporary view tail as select id, tstamp, doc, search from logs where tstamp between '{}' and '{}'",
-            params.start.to_offset(UtcOffset::UTC).format(&rfc3339_format).unwrap(),
-            params.end.to_offset(UtcOffset::UTC).format(&rfc3339_format).unwrap()
-        ).as_str(), &[]
-    ).await.unwrap();
-
-    let table = "tail";
+    let conn = db.get().await.unwrap();
     let event_limit_param_id = query_params.len() + 1;
     let start_tstamp_param_id = query_params.len() + 2;
     let end_tstamp_param_id = query_params.len() + 3;
@@ -242,48 +229,39 @@ async fn fetch_events(
             select jsonb_build_object('timestamp', tstamp, 'id', id, 'source', doc) as doc
             from {}
             where {}
+            and tstamp between ${} and ${}
             order by tstamp desc
             limit ${}
         "#,
-        table, expr, event_limit_param_id,
+        table, expr, start_tstamp_param_id, end_tstamp_param_id, event_limit_param_id,
     );
 
-    let duration = Duration::new(
-        params.end.unix_timestamp() - params.start.unix_timestamp(),
-        0,
-    );
-    let (trunc, interval) = if duration <= Duration::hours(1) {
-        ("second", 1)
-    } else if duration <= Duration::days(1) {
-        ("minute", 60)
-    } else if duration <= Duration::days(30) {
-        ("hour", 3600)
-    } else {
-        ("day", 3600 * 24)
-    };
-    println!("counts scale: {}", trunc);
-
+    let interval = CountsInterval::from(params.end - params.start);
+    println!("interval: {:?}", interval);
     let counts_query = format!(
         r#"
-            select dt, coalesce(l.count, 0) as count
-            from generate_series(${}, ${}, '1 {}'::interval) dt
-            left join (select date_trunc('{}', tstamp) as ld, count(tstamp) as count
-                from {}
-                where {}
-                and tstamp between ${} and ${}
-                group by 1) l
-            on date_trunc('{}', dt) = l.ld
-            order by dt
+            select date_trunc('{}', gen_time) as tstamp, sum(subcount) as count
+            from generate_series(${}, ${}, '{}') gen_time
+            left join (select date_trunc('{}', tstamp) as log_time, count(*) as subcount
+                    from {}
+                    where {}
+                    and tstamp between ${} and ${}
+                    group by log_time
+            ) l
+            on log_time between gen_time - '{}'::interval and gen_time
+            group by tstamp
+            order by tstamp
         "#,
+        &interval.truncate,
         start_tstamp_param_id,
         end_tstamp_param_id,
-        trunc,
-        trunc,
+        &interval.interval,
+        &interval.truncate,
         table,
         expr,
         start_tstamp_param_id,
         end_tstamp_param_id,
-        trunc
+        &interval.interval
     );
 
     let metadata_query = format!(
@@ -292,23 +270,23 @@ async fn fetch_events(
             union
             select 'counts_interval_sec' as key, {} as value
         "#,
-        table, interval
+        table, &interval.seconds
     );
 
     let full_query = format!(
         r#"
-                select fields.doc || events.doc || counts.doc || metadata.doc as doc
-                from
-                (select jsonb_build_object('fields', jsonb_object_agg(key, values)) as doc from ({}) f) fields,
-                (select jsonb_build_object('events', jsonb_agg(doc)) as doc from ({}) e) events,
-                (select jsonb_build_object('counts', jsonb_object_agg(dt, count)) as doc from ({}) c) counts,
-                (select jsonb_build_object('metadata', jsonb_object_agg(key, value)) as doc from ({}) m) metadata
-            "#,
+            select fields.doc || events.doc || counts.doc || metadata.doc as doc
+            from
+            (select jsonb_build_object('fields', jsonb_object_agg(key, values)) as doc from ({}) f) fields,
+            (select jsonb_build_object('events', jsonb_agg(doc)) as doc from ({}) e) events,
+            (select jsonb_build_object('counts', jsonb_object_agg(tstamp, count)) as doc from ({}) c) counts,
+            (select jsonb_build_object('metadata', jsonb_object_agg(key, value)) as doc from ({}) m) metadata
+        "#,
         fields_query, events_query, counts_query, metadata_query
     );
 
     type Param = (dyn ToSql + Sync);
-    let query = transaction
+    let query = conn
         .query_raw(
             full_query.as_str(),
             query_params
@@ -365,5 +343,79 @@ impl fmt::Display for Error {
             Db(e) => write!(f, "Database connection error: {}", e),
             Tls(e) => write!(f, "TLS setup error: {}", e),
         }
+    }
+}
+
+const INTERVALS: &[(u64, &str, &str)] = &[
+    (1, "1 seconds", "second"),
+    (2, "2 seconds", "second"),
+    (5, "5 seconds", "second"),
+    (10, "10 seconds", "second"),
+    (30, "30 seconds", "second"),
+    (60, "1 minute", "minute"),
+    (2 * 60, "2 minutes", "minute"),
+    (5 * 60, "5 minutes", "minute"),
+    (10 * 60, "10 minutes", "minute"),
+    (30 * 60, "30 minutes", "minute"),
+    (3600, "1 hour", "hour"),
+    (2 * 3600, "2 hours", "hour"),
+    (5 * 3600, "5 hours", "hour"),
+    (10 * 3600, "10 hours", "hour"),
+    (24 * 3600, "1 day", "day"),
+    (2 * 24 * 3600, "2 days", "day"),
+    (7 * 24 * 3600, "1 week", "week"),
+    (2 * 7 * 24 * 3600, "2 week", "week"),
+    (30 * 24 * 3600, "1 month", "month"),
+    (2 * 30 * 24 * 3600, "2 months", "month"),
+    (3 * 30 * 24 * 3600, "3 months", "month"),
+    (4 * 30 * 24 * 3600, "4 months", "month"),
+    (6 * 30 * 24 * 3600, "6 months", "month"),
+    (365 * 24 * 3600, "1 year", "year"),
+    (2 * 365 * 24 * 3600, "2 years", "year"),
+    (5 * 365 * 24 * 3600, "5 years", "year"),
+    (10 * 365 * 24 * 3600, "10 years", "year"),
+    (20 * 365 * 24 * 3600, "20 years", "year"),
+    (50 * 365 * 24 * 3600, "50 years", "year"),
+];
+
+#[derive(Debug)]
+struct CountsInterval {
+    pub seconds: u64,
+    pub truncate: String,
+    pub interval: String,
+}
+
+impl From<Duration> for CountsInterval {
+    fn from(duration: Duration) -> Self {
+        let duration: u64 = duration.whole_seconds().unsigned_abs();
+        for (seconds, interval, trunc) in INTERVALS {
+            if duration / seconds < 100 {
+                return Self {
+                    seconds: *seconds,
+                    truncate: trunc.to_string(),
+                    interval: interval.to_string(),
+                };
+            }
+        }
+
+        Self {
+            seconds: 100 * 365 * 24 * 3600,
+            truncate: "year".to_string(),
+            interval: "100 years".to_string(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn intervals() {
+        let i = CountsInterval::from(Duration::seconds(50));
+        assert_eq!(i.interval, "1 seconds");
+
+        let i = CountsInterval::from(Duration::hours(4));
+        assert_eq!(i.interval, "5 minutes");
     }
 }

@@ -40,6 +40,7 @@ pub struct Config {
     pub auto_restart: bool,
     pub postgres_tls: TlsSettings,
     pub http_settings: HttpSettings,
+    pub root_table_name: String,
 }
 
 impl Default for Config {
@@ -51,6 +52,7 @@ impl Default for Config {
             auto_restart: false,
             postgres_tls: TlsSettings::default(),
             http_settings: HttpSettings::default(),
+            root_table_name: "logs".into(),
         }
     }
 }

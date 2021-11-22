@@ -33,6 +33,9 @@ http_settings:
   #   type: Required
   #   trusted_certs: /path/to/bundle.crt
 
+# PostgreSQL root table to read logs from (default logs)
+root_table_name: logs
+
 # Database URL, (see
 # https://docs.rs/postgres/0.19.2/postgres/config/struct.Config.html)
 db_url: >-
