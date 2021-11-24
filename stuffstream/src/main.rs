@@ -6,6 +6,8 @@ mod app;
 mod application;
 mod cli;
 mod config;
+mod events;
+mod interval;
 
 use app::App;
 use application::Application;
