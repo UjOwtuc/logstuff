@@ -43,7 +43,7 @@ impl From<Duration> for CountsInterval {
     fn from(duration: Duration) -> Self {
         let duration: u64 = duration.whole_seconds().unsigned_abs();
         for (seconds, interval, trunc) in INTERVALS {
-            if duration / seconds < 100 {
+            if duration / seconds < 120 {
                 return Self {
                     seconds: *seconds,
                     truncate: trunc.to_string(),

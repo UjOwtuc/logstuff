@@ -108,34 +108,34 @@ fn counts_query(
 fn fields_query(table: &str, expr: &str, start_id: usize, end_id: usize) -> String {
     format!(
         r#"
-                select jsonb_object_agg(key, values) as doc from (
-                    select key::varchar, jsonb_object_agg(coalesce(value::text, ''), count::integer) as values from (
-                        select row_number() over (
-                                partition by key
-                                order by count desc
-                            ) as row_number, count, key, value
+            select jsonb_object_agg(key, values) as doc from (
+                select key::varchar, jsonb_object_agg(coalesce(value::text, ''), count::integer) as values from (
+                    select row_number() over (
+                            partition by key
+                            order by count desc
+                        ) as row_number, count, key, value
+                    from (
+                        select count(*), key, jsonb_array_elements(
+                            case
+                                when jsonb_typeof(value) = 'array' then value
+                                else jsonb_build_array(value)
+                            end) #>> '{{}}' as value
                         from (
-                            select count(*), key, jsonb_array_elements(
-                                case
-                                    when jsonb_typeof(value) = 'array' then value
-                                    else jsonb_build_array(value)
-                                end) #>> '{{}}' as value
-                            from (
-                                select doc
-                                from {}
-                                where {}
-                                and tstamp between ${} and ${}
-                                order by tstamp desc
-                                limit 500
-                            ) limited_logs, jsonb_each(doc)
-                            group by key, value
-                            order by key, count desc
-                        ) counted
-                    ) ranked
-                    where row_number <= 5
-                    group by key
-                ) f
-            "#,
+                            select doc
+                            from {}
+                            where {}
+                            and tstamp between ${} and ${}
+                            order by tstamp desc
+                            limit 500
+                        ) limited_logs, jsonb_each(doc)
+                        group by key, value
+                        order by key, count desc
+                    ) counted
+                ) ranked
+                where row_number <= 5
+                group by key
+            ) f
+        "#,
         table, expr, start_id, end_id
     )
 }
@@ -144,12 +144,12 @@ fn metadata_query(table: &str, start: &OffsetDateTime, end: &OffsetDateTime) -> 
     let interval = CountsInterval::from(*end - *start);
     format!(
         r#"
-                select jsonb_object_agg(key, value) as doc from (
-                    select 'event_count' as key, count_estimate('select * from {} where tstamp between ''{}'' and ''{}''') as value
-                    union
-                    select 'counts_interval_sec' as key, {} as value
-                ) m
-            "#,
+            select jsonb_object_agg(key, value) as doc from (
+                select 'event_count' as key, count_estimate('select * from {} where tstamp between ''{}'' and ''{}''') as value
+                union
+                select 'counts_interval_sec' as key, {} as value
+            ) m
+        "#,
         table,
         start.format(&Rfc3339).unwrap(),
         end.format(&Rfc3339).unwrap(),
