@@ -12,6 +12,38 @@ lalrpop_mod!(
     pub query
 );
 
+pub struct IdentifierParser {
+    parser: query::IdentifierParser,
+}
+
+impl Default for IdentifierParser {
+    fn default() -> Self {
+        Self {
+            parser: query::IdentifierParser::new(),
+        }
+    }
+}
+
+impl IdentifierParser {
+    pub fn sql_primitive(
+        &self,
+        text: &str,
+        param_offset: usize,
+    ) -> Result<(String, QueryParams), ParseError> {
+        let id = self.parser.parse(text)?;
+        Ok(id.primitive_getter(param_offset))
+    }
+
+    pub fn sql_json(
+        &self,
+        text: &str,
+        param_offset: usize,
+    ) -> Result<(String, QueryParams), ParseError> {
+        let id = self.parser.parse(text)?;
+        Ok(id.json_getter(param_offset))
+    }
+}
+
 pub struct ExpressionParser {
     parser: query::ExpressionParser,
 }
@@ -25,12 +57,16 @@ impl Default for ExpressionParser {
 }
 
 impl ExpressionParser {
-    pub fn to_sql(&self, text: &str) -> Result<(String, QueryParams), ParseError> {
+    pub fn to_sql(
+        &self,
+        text: &str,
+        param_offset: usize,
+    ) -> Result<(String, QueryParams), ParseError> {
         if text.is_empty() {
             Ok(("1 = 1".into(), QueryParams::new()))
         } else {
             let tree = self.parser.parse(&text.to_owned())?;
-            Ok(tree.to_sql_query(1))
+            Ok(tree.to_sql_query(param_offset))
         }
     }
 }

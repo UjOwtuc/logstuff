@@ -22,7 +22,7 @@ http_settings:
 
   # Listen for HTTPS requests only (default false)
   # If set, you need to provide a server certificate and private key, too
-  use_tls: true
+  # use_tls: true
 
   # Load server certificate and private key from given PEM encoded files
   # (default empty). Used only if "use_tls" ist set.

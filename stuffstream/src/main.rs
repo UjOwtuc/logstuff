@@ -6,6 +6,7 @@ mod app;
 mod application;
 mod cli;
 mod config;
+mod counts;
 mod events;
 mod interval;
 

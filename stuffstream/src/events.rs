@@ -3,13 +3,14 @@ use bb8_postgres::tokio_postgres::types::ToSql;
 use futures::lock::Mutex;
 use futures::stream;
 use futures::{StreamExt, TryStreamExt};
-use logstuff::serde::de::rfc3339;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::iter::Iterator;
 use std::sync::Arc;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use warp::http;
 
+use logstuff::serde::de::rfc3339;
 use logstuff_query::ExpressionParser;
 
 use crate::app::DBPool;
@@ -19,8 +20,24 @@ use crate::interval::CountsInterval;
 
 type Param = (dyn ToSql + Sync);
 
+pub(crate) async fn handler(
+    parser: Arc<Mutex<ExpressionParser>>,
+    table_name: String,
+    params: Request,
+    db: DBPool,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let response = Response::new(parser, &table_name, db.clone());
+    Ok(http::Response::builder()
+        .status(http::StatusCode::OK)
+        .header("Content-Type", "application/json")
+        .body(warp::hyper::Body::wrap_stream(
+            response.streams(params).await,
+        ))
+        .unwrap())
+}
+
 #[derive(Serialize, Deserialize, Debug)]
-pub struct EventsRequest {
+pub struct Request {
     #[serde(deserialize_with = "rfc3339")]
     start: OffsetDateTime,
     #[serde(deserialize_with = "rfc3339")]
@@ -29,8 +46,7 @@ pub struct EventsRequest {
     limit_events: Option<i64>,
 }
 
-#[derive(Clone)]
-pub struct EventsResponse {
+pub struct Response {
     parser: Arc<Mutex<ExpressionParser>>,
     table: String,
     db: DBPool,
@@ -286,7 +302,7 @@ async fn events(
     })
 }
 
-impl EventsResponse {
+impl Response {
     pub fn new(parser: Arc<Mutex<ExpressionParser>>, table: &str, db: DBPool) -> Self {
         Self {
             parser,
@@ -301,7 +317,7 @@ impl EventsResponse {
     ) -> Result<(String, Vec<Value>), MalformedQuery> {
         let p = self.parser.lock().await;
         let (query, query_params) = if let Some(query) = query {
-            p.to_sql(query).map_err(|_| MalformedQuery)?
+            p.to_sql(query, 1).map_err(|_| MalformedQuery)?
         } else {
             ("1 = 1".into(), Vec::new())
         };
@@ -311,7 +327,7 @@ impl EventsResponse {
 
     pub async fn streams(
         self,
-        params: EventsRequest,
+        params: Request,
     ) -> impl futures::Stream<Item = Result<impl Into<warp::hyper::body::Bytes>, Error>> {
         let (expr, query_params) = self.parse_query(&params.query).await.unwrap();
         let expr = Arc::new(expr);

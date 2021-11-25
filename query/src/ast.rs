@@ -1,6 +1,31 @@
 use serde_json::json;
 
 #[derive(Debug, PartialEq)]
+pub struct Identifier(String);
+
+impl Identifier {
+    pub fn primitive_getter(&self, param_offset: usize) -> (String, QueryParams) {
+        (
+            format!("doc ->> (${}::jsonb #>> '{{}}')", param_offset),
+            vec![serde_json::Value::from(self.0.to_owned())],
+        )
+    }
+
+    pub fn json_getter(&self, param_offset: usize) -> (String, QueryParams) {
+        (
+            format!("doc -> (${}::jsonb #>> '{{}}')", param_offset),
+            vec![serde_json::Value::from(self.0.to_owned())],
+        )
+    }
+}
+
+impl From<String> for Identifier {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Scalar {
     Int(i64),
     Float(f64),
@@ -129,14 +154,14 @@ impl Operator {
 
 #[derive(Debug, PartialEq)]
 pub struct Comparison {
-    pub(crate) identifier: String,
+    pub(crate) identifier: Identifier,
     pub(crate) operator: Operator,
     pub(crate) value: Value,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Expression {
-    Compare(String, Operator, Value),
+    Compare(Identifier, Operator, Value),
     And(Box<Expression>, Box<Expression>),
     Or(Box<Expression>, Box<Expression>),
     Not(Box<Expression>),
@@ -174,17 +199,16 @@ impl Expression {
                 vec![serde_json::Value::from(s.to_owned())],
             ),
             Expression::Compare(id, op, value) => {
-                let id_expr = if op.primitive_operands() {
-                    format!("doc ->> (${}::jsonb #>> '{{}}')", param_offset)
+                let (id_expr, mut params) = if op.primitive_operands() {
+                    id.primitive_getter(param_offset)
                 } else {
-                    format!("doc -> (${}::jsonb #>> '{{}}')", param_offset)
+                    id.json_getter(param_offset)
                 };
                 let (value_expr, value_params) = if op.primitive_operands() {
-                    value.to_sql_primitive_param(param_offset + 1)
+                    value.to_sql_primitive_param(param_offset + params.len())
                 } else {
-                    value.to_sql_json_param(param_offset + 1)
+                    value.to_sql_json_param(param_offset + params.len())
                 };
-                let mut params: QueryParams = vec![serde_json::Value::from(id.to_owned())];
                 params.extend(value_params);
                 (
                     format!("{} {} {}", id_expr, op.sql_symbol(), value_expr),

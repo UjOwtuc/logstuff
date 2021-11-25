@@ -8,7 +8,7 @@ fn main() {
     for line in stdin.lock().lines() {
         let line = line.unwrap();
 
-        match parser.to_sql(line.as_ref()) {
+        match parser.to_sql(line.as_ref(), 1) {
             Ok((expr, params)) => {
                 println!("expression: {}", expr);
                 println!("params:");

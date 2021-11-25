@@ -114,7 +114,7 @@ impl Settings {
         let (query_expr, query_params) = match matches.value_of("query") {
             Some(query) => {
                 let parser = ExpressionParser::default();
-                parser.to_sql(query).unwrap()
+                parser.to_sql(query, 1).unwrap()
             }
             None => ("1 = 1".to_string(), Vec::new()),
         };

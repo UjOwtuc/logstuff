@@ -6,16 +6,17 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::{fmt, io};
 use tokio_postgres_rustls::MakeRustlsConnect;
-use warp::http::{Response, StatusCode};
+use warp::http::StatusCode;
 use warp::{reject, reply, Filter, Rejection, Reply};
 
 use logstuff::tls;
-use logstuff_query::ExpressionParser;
+use logstuff_query::{ExpressionParser, IdentifierParser};
 
 use crate::application::{Application, Stopping};
 use crate::cli::Options;
 use crate::config::{Config, HttpSettings, TlsClientAuth};
-use crate::events::{EventsRequest, EventsResponse};
+use crate::counts;
+use crate::events;
 
 pub(crate) type DBPool = bb8::Pool<PostgresConnectionManager<MakeRustlsConnect>>;
 
@@ -108,19 +109,36 @@ async fn start_server(
         .await
         .unwrap();
 
-    let parser = Arc::new(Mutex::new(ExpressionParser::default()));
+    let expr_parser = Arc::new(Mutex::new(ExpressionParser::default()));
+    let id_parser = Arc::new(Mutex::new(IdentifierParser::default()));
 
-    let table_name = table_name.to_owned();
+    let p = expr_parser.clone();
+    let table = table_name.to_owned();
     let events = warp::get()
         .and(warp::path("events"))
-        .and(warp::query::<EventsRequest>())
+        .and(warp::query::<events::Request>())
         .and(with_db(dbpool.clone()))
         .and_then(move |params, dbpool| {
-            events_handler(parser.clone(), table_name.to_owned(), params, dbpool)
-        })
-        .recover(handle_rejection);
+            events::handler(p.clone(), table.to_owned(), params, dbpool)
+        });
 
-    let server = warp::serve(events);
+    let table = table_name.to_owned();
+    let counts = warp::get()
+        .and(warp::path("counts"))
+        .and(warp::query::<counts::Request>())
+        .and(with_db(dbpool.clone()))
+        .and_then(move |params, dbpool| {
+            counts::handler(
+                expr_parser.clone(),
+                id_parser.clone(),
+                table.to_owned(),
+                params,
+                dbpool,
+            )
+        });
+
+    let routes = events.or(counts).recover(handle_rejection);
+    let server = warp::serve(routes);
     if http_settings.use_tls {
         let server = server
             .tls()
@@ -143,22 +161,6 @@ async fn start_server(
     }
 
     Ok(())
-}
-
-async fn events_handler(
-    parser: Arc<Mutex<ExpressionParser>>,
-    table_name: String,
-    params: EventsRequest,
-    db: DBPool,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    let response = EventsResponse::new(parser, &table_name, db.clone());
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "application/json")
-        .body(warp::hyper::Body::wrap_stream(
-            response.streams(params).await,
-        ))
-        .unwrap())
 }
 
 fn with_db(db_pool: DBPool) -> impl Filter<Extract = (DBPool,), Error = Infallible> + Clone {

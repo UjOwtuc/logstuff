@@ -5,7 +5,7 @@ use crate::ast;
 
 grammar;
 
-pub Identifier: String = <r"[a-zA-Z_][a-zA-Z0-9._-]*"> => <>.to_string();
+pub Identifier: ast::Identifier = <r"[a-zA-Z_][a-zA-Z0-9._-]*"> => ast::Identifier::from(<>.to_string());
 
 Operator: ast::Operator = {
     "=" => ast::Operator::Eq,
