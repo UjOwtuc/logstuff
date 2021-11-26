@@ -82,7 +82,7 @@ fn split_counts_query(
                     select date_trunc('{}', gen_time) as tstamp, series.id as id, sum(coalesce(subcount, 0)) as count
                     from (select gen_time, id from 
                             generate_series(${}, ${}, '{}'::interval) gen_time,
-                            (select distinct {} as id, count(*) as count
+                            (select coalesce({}, '(null)') as id, count(*) as count
                             from {}
                             where {}
                             and tstamp between ${} and ${}
@@ -90,7 +90,7 @@ fn split_counts_query(
                             order by count desc
                             limit ${}) split
                         ) series
-                    left join (select date_trunc('{}', tstamp) as log_time, {} as id, count(*) as subcount
+                    left join (select date_trunc('{}', tstamp) as log_time, coalesce({}, '(null)') as id, count(*) as subcount
                             from {}
                             where {}
                             and tstamp between ${} and ${}
