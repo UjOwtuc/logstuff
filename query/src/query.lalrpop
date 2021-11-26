@@ -7,16 +7,6 @@ grammar;
 
 pub Identifier: ast::Identifier = <r"[a-zA-Z_][a-zA-Z0-9._-]*"> => ast::Identifier::from(<>.to_string());
 
-Operator: ast::Operator = {
-    "=" => ast::Operator::Eq,
-    "<" => ast::Operator::Lt,
-    "<=" => ast::Operator::Le,
-    ">" => ast::Operator::Gt,
-    ">=" => ast::Operator::Ge,
-    "like" => ast::Operator::Like,
-    "in" => ast::Operator::In,
-}
-
 Integer: i64 = <r"(0|-?[1-9][0-9]*)"> => i64::from_str(<>).unwrap();
 Float: f64 = <r"-?(0|[1-9][0-9]*)\.[0-9]+"> => f64::from_str(<>).unwrap();
 QuotedString: String = {
@@ -36,9 +26,13 @@ QuotedString: String = {
             .replace("\\\\", "\\"),
 };
 
-pub Scalar: ast::Scalar = {
+Numeric: ast::Scalar = {
     Integer => ast::Scalar::from(<>),
     Float => ast::Scalar::from(<>),
+}
+
+pub Scalar: ast::Scalar = {
+    Numeric,
     QuotedString => ast::Scalar::from(<>),
 }
 
@@ -51,8 +45,14 @@ pub List: Vec<ast::Scalar> = {
 };
 
 pub Term: Box<ast::Expression> = {
-    <id:Identifier> <op:Operator> <v:Scalar> => Box::new(ast::Expression::Compare(id, op, ast::Value::Scalar(v))),
-    <id:Identifier> <op:Operator> <v:List> => Box::new(ast::Expression::Compare(id, op, ast::Value::List(v))),
+    <id:Identifier> "=" <v:Scalar> => Box::new(ast::Expression::Compare(id, ast::Operator::Eq, ast::Value::from(v))),
+    <id:Identifier> "=" <v:List> => Box::new(ast::Expression::Compare(id, ast::Operator::Eq, ast::Value::from(v))),
+    <id:Identifier> "<" <v:Numeric> => Box::new(ast::Expression::Compare(id, ast::Operator::Lt, ast::Value::from(v))),
+    <id:Identifier> "<=" <v:Numeric> => Box::new(ast::Expression::Compare(id, ast::Operator::Le, ast::Value::from(v))),
+    <id:Identifier> ">" <v:Numeric> => Box::new(ast::Expression::Compare(id, ast::Operator::Gt, ast::Value::from(v))),
+    <id:Identifier> ">=" <v:Numeric> => Box::new(ast::Expression::Compare(id, ast::Operator::Ge, ast::Value::from(v))),
+    <id:Identifier> "like" <v:QuotedString> => Box::new(ast::Expression::Compare(id, ast::Operator::Like, ast::Value::from(v))),
+    <id:Identifier> "in" <v:List> => Box::new(ast::Expression::Compare(id, ast::Operator::In, ast::Value::from(v))),
     <QuotedString> => Box::new(ast::Expression::FullTextSearch(<>)),
 }
 

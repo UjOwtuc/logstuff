@@ -44,6 +44,20 @@ create index idx_search on logs.logs using GIN(search);
 -- create table logs.logs_2021_10 partition of logs.logs for values from ('2021-10-01') to ('2021-11-01');
 -- alter table logs.logs_2021_10 owner to write_logs;
 
+CREATE FUNCTION logs.to_number_or_null(input text) RETURNS INTEGER AS $$
+DECLARE
+	result INTEGER DEFAULT NULL;
+BEGIN
+	BEGIN
+		result := input::INTEGER;
+	EXCEPTION WHEN OTHERS THEN
+		RETURN NULL;
+	END;
+	RETURN result;
+END;
+$$ LANGUAGE plpgsql;
+
+
 -- thanks to Michael Fuhr (https://www.postgresql.org/message-id/20050810133157.GA46247@winnie.fuhr.org)
 CREATE FUNCTION logs.count_estimate(query text) RETURNS integer AS $$
 DECLARE

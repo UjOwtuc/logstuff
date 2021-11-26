@@ -25,13 +25,13 @@ impl Default for IdentifierParser {
 }
 
 impl IdentifierParser {
-    pub fn sql_primitive(
+    pub fn sql_string(
         &self,
         text: &str,
         param_offset: usize,
     ) -> Result<(String, QueryParams), ParseError> {
         let id = self.parser.parse(text)?;
-        Ok(id.primitive_getter(param_offset))
+        Ok(id.string_getter(param_offset))
     }
 
     pub fn sql_json(
@@ -115,7 +115,7 @@ impl<T, E> From<lalrpop_util::ParseError<usize, T, E>> for ParseError {
 #[cfg(test)]
 mod test {
     use super::query;
-    use crate::ast::{Expression, Operator, Scalar, Value};
+    use crate::ast::{Expression, Identifier, Operator, Scalar, Value};
     use serde_json::json;
 
     #[test]
@@ -219,7 +219,10 @@ mod test {
     #[test]
     fn parse_identifier() {
         let p = query::IdentifierParser::new();
-        assert_eq!(p.parse("abc_def-ghi.123").unwrap(), "abc_def-ghi.123");
+        assert_eq!(
+            p.parse("abc_def-ghi.123").unwrap(),
+            Identifier::from("abc_def-ghi.123")
+        );
         assert!(p.parse("0asd").is_err());
         assert!(p.parse(".asd").is_err());
         assert!(p.parse("-asd").is_err());
