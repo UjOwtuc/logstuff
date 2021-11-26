@@ -44,6 +44,7 @@ pub struct Request {
     end: OffsetDateTime,
     query: Option<String>,
     split_by: Option<String>,
+    max_buckets: Option<i64>,
 }
 
 impl Request {
@@ -72,6 +73,7 @@ fn split_counts_query(
     start_id: usize,
     end_id: usize,
     interval: &CountsInterval,
+    max_buckets_id: usize,
 ) -> String {
     format!(
         r#"
@@ -80,10 +82,13 @@ fn split_counts_query(
                     select date_trunc('{}', gen_time) as tstamp, series.id as id, sum(coalesce(subcount, 0)) as count
                     from (select gen_time, id from 
                             generate_series(${}, ${}, '{}'::interval) gen_time,
-                            (select distinct {} as id
+                            (select distinct {} as id, count(*) as count
                             from {}
                             where {}
-                            and tstamp between ${} and ${}) split
+                            and tstamp between ${} and ${}
+                            group by 1
+                            order by count desc
+                            limit ${}) split
                         ) series
                     left join (select date_trunc('{}', tstamp) as log_time, {} as id, count(*) as subcount
                             from {}
@@ -108,6 +113,7 @@ fn split_counts_query(
         expr,
         start_id,
         end_id,
+        max_buckets_id,
         &interval.truncate,
         split_by,
         table,
@@ -207,41 +213,44 @@ impl Response {
         let (expr, mut query_params) = self.parse_query(&params.query, param_offset).await.unwrap();
         let param_offset = param_offset + query_params.len();
 
+        let db = self.db.get().await.unwrap();
         let interval = CountsInterval::from(params.end - params.start);
-        let query = if params.has_split_by() {
+        let counts = if params.has_split_by() {
             let (getter, mut getter_params) = self
                 .parse_identifier(&params.split_by.unwrap(), 1)
                 .await
                 .unwrap();
             getter_params.extend(query_params);
             query_params = getter_params;
-            split_counts_query(
+
+            let query = split_counts_query(
                 &self.table,
                 &getter,
                 &expr,
                 param_offset,
                 param_offset + 1,
                 &interval,
+                param_offset + 2,
+            );
+            db.query_raw(
+                query.as_str(),
+                query_params
+                    .iter()
+                    .map(|e| e as &Param)
+                    .chain(std::iter::once::<&Param>(&params.start.to_owned()))
+                    .chain(std::iter::once::<&Param>(&params.end.to_owned()))
+                    .chain(std::iter::once::<&Param>(&params.max_buckets.to_owned()))
+                    .collect::<Vec<&Param>>(),
             )
+            .await
         } else {
-            counts_query(
+            let query = counts_query(
                 &self.table,
                 &expr,
                 param_offset,
                 param_offset + 1,
                 &interval,
-            )
-        };
-
-        let db = self.db.get().await.unwrap();
-
-        stream::once(async move {
-            Ok(format!(
-                r#"{{"metadata":{{"counts_interval_sec": {}}},"counts":"#,
-                interval.seconds
-            ))
-        })
-        .chain(
+            );
             db.query_raw(
                 query.as_str(),
                 query_params
@@ -252,12 +261,22 @@ impl Response {
                     .collect::<Vec<&Param>>(),
             )
             .await
-            .unwrap()
-            .map_ok(|row| {
-                let value: Option<Value> = row.get("doc");
-                value.unwrap_or(Value::Null).to_string()
-            })
-            .map_err(Error::from),
+        };
+
+        stream::once(async move {
+            Ok(format!(
+                r#"{{"metadata":{{"counts_interval_sec": {}}},"counts":"#,
+                interval.seconds
+            ))
+        })
+        .chain(
+            counts
+                .unwrap()
+                .map_ok(|row| {
+                    let value: Option<Value> = row.get("doc");
+                    value.unwrap_or(Value::Null).to_string()
+                })
+                .map_err(Error::from),
         )
         .chain(stream::once(async { Ok(r#"}"#.to_string()) }))
     }
