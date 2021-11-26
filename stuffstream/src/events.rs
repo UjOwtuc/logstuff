@@ -83,44 +83,6 @@ fn events_query(
     )
 }
 
-fn counts_query(
-    table: &str,
-    expr: &str,
-    start_id: usize,
-    end_id: usize,
-    start: &OffsetDateTime,
-    end: &OffsetDateTime,
-) -> String {
-    let interval = CountsInterval::from(*end - *start);
-    format!(
-        r#"
-            select jsonb_object_agg(tstamp, count) as doc from (
-                select date_trunc('{}', gen_time) as tstamp, sum(coalesce(subcount, 0)) as count
-                from generate_series(${}, ${}, '{}'::interval) gen_time
-                left join (select date_trunc('{}', tstamp) as log_time, count(*) as subcount
-                    from {}
-                    where {}
-                    and tstamp between ${} and ${}
-                    group by log_time
-                ) l
-                on log_time between gen_time - '{}'::interval and gen_time
-                group by tstamp
-                order by tstamp
-            ) c
-        "#,
-        &interval.truncate,
-        start_id,
-        end_id,
-        &interval.interval,
-        &interval.truncate,
-        table,
-        expr,
-        start_id,
-        end_id,
-        &interval.interval
-    )
-}
-
 fn fields_query(table: &str, expr: &str, start_id: usize, end_id: usize) -> String {
     format!(
         r#"
@@ -191,42 +153,6 @@ async fn metadata(
     )
     .map_err(|err| {
         error!("fetch metadata: {:?}", err);
-        Error::from(err)
-    })
-}
-
-async fn counts(
-    db: DBPool,
-    table: Arc<String>,
-    expr: Arc<String>,
-    params: Arc<Vec<Value>>,
-    start: &OffsetDateTime,
-    end: &OffsetDateTime,
-) -> impl stream::Stream<Item = Result<String, Error>> {
-    let db = db.get().await.unwrap();
-    fetch_doc(
-        db.query_raw(
-            counts_query(
-                table.as_ref(),
-                expr.as_ref(),
-                params.len() + 1,
-                params.len() + 2,
-                start,
-                end,
-            )
-            .as_str(),
-            params
-                .iter()
-                .map(|e| e as &Param)
-                .chain(std::iter::once::<&Param>(&start.to_owned()))
-                .chain(std::iter::once::<&Param>(&end.to_owned()))
-                .collect::<Vec<&Param>>(),
-        )
-        .await
-        .unwrap(),
-    )
-    .map_err(|err| {
-        error!("fetch counts: {:?}", err);
         Error::from(err)
     })
 }
@@ -334,7 +260,7 @@ impl Response {
         let query_params = Arc::new(query_params);
         let table = Arc::new(self.table.to_owned());
 
-        let (e, f, c, m) = futures::join!(
+        let (e, f, m) = futures::join!(
             events(
                 self.db.clone(),
                 table.clone(),
@@ -352,14 +278,6 @@ impl Response {
                 &params.start,
                 &params.end,
             ),
-            counts(
-                self.db.clone(),
-                table.clone(),
-                expr.clone(),
-                query_params.clone(),
-                &params.start,
-                &params.end,
-            ),
             metadata(self.db, table, &params.start, &params.end),
         );
 
@@ -367,8 +285,6 @@ impl Response {
             .chain(e)
             .chain(stream::once(async { Ok(r#", "fields":"#.to_string()) }))
             .chain(f)
-            .chain(stream::once(async { Ok(r#", "counts":"#.to_string()) }))
-            .chain(c)
             .chain(stream::once(async { Ok(r#", "metadata":"#.to_string()) }))
             .chain(m)
             .chain(stream::once(async { Ok("}".to_string()) }))

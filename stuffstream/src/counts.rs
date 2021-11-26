@@ -44,7 +44,16 @@ pub struct Request {
     end: OffsetDateTime,
     query: Option<String>,
     split_by: Option<String>,
-    max_buckets: Option<u16>,
+}
+
+impl Request {
+    pub fn has_split_by(&self) -> bool {
+        if let Some(name) = &self.split_by {
+            !name.is_empty()
+        } else {
+            false
+        }
+    }
 }
 
 type Param = (dyn ToSql + Sync);
@@ -109,6 +118,42 @@ fn split_counts_query(
     )
 }
 
+fn counts_query(
+    table: &str,
+    expr: &str,
+    start_id: usize,
+    end_id: usize,
+    interval: &CountsInterval,
+) -> String {
+    format!(
+        r#"
+            select jsonb_object_agg(tstamp, count) as doc from (
+                select date_trunc('{}', gen_time) as tstamp, sum(coalesce(subcount, 0)) as count
+                from generate_series(${}, ${}, '{}'::interval) gen_time
+                left join (select date_trunc('{}', tstamp) as log_time, count(*) as subcount
+                    from {}
+                    where {}
+                    and tstamp between ${} and ${}
+                    group by log_time
+                ) l
+                on log_time between gen_time - '{}'::interval and gen_time
+                group by tstamp
+                order by tstamp
+            ) c
+        "#,
+        &interval.truncate,
+        start_id,
+        end_id,
+        &interval.interval,
+        &interval.truncate,
+        table,
+        expr,
+        start_id,
+        end_id,
+        &interval.interval
+    )
+}
+
 impl Response {
     pub fn new(
         expr_parser: Arc<Mutex<ExpressionParser>>,
@@ -145,9 +190,7 @@ impl Response {
         param_offset: usize,
     ) -> Result<(String, Vec<Value>), MalformedQuery> {
         let p = self.id_parser.lock().await;
-        let (expr, params) = p
-            .sql_primitive(id, param_offset)
-            .map_err(|_| MalformedQuery)?;
+        let (expr, params) = p.sql_string(id, param_offset).map_err(|_| MalformedQuery)?;
         drop(p);
         Ok((expr, params))
     }
@@ -156,17 +199,20 @@ impl Response {
         self,
         params: Request,
     ) -> impl futures::Stream<Item = Result<impl Into<warp::hyper::body::Bytes>, Error>> {
-        let param_offset = match params.split_by {
-            Some(_) => 2,
-            None => 1,
+        let param_offset = match params.has_split_by() {
+            true => 2,
+            false => 1,
         };
 
         let (expr, mut query_params) = self.parse_query(&params.query, param_offset).await.unwrap();
         let param_offset = param_offset + query_params.len();
 
         let interval = CountsInterval::from(params.end - params.start);
-        let query = if let Some(name) = params.split_by {
-            let (getter, mut getter_params) = self.parse_identifier(&name, 1).await.unwrap();
+        let query = if params.has_split_by() {
+            let (getter, mut getter_params) = self
+                .parse_identifier(&params.split_by.unwrap(), 1)
+                .await
+                .unwrap();
             getter_params.extend(query_params);
             query_params = getter_params;
             split_counts_query(
@@ -178,7 +224,13 @@ impl Response {
                 &interval,
             )
         } else {
-            unimplemented!();
+            counts_query(
+                &self.table,
+                &expr,
+                param_offset,
+                param_offset + 1,
+                &interval,
+            )
         };
 
         let db = self.db.get().await.unwrap();
