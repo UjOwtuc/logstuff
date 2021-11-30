@@ -68,13 +68,33 @@ pub struct Response {
 
 fn split_counts_query(
     table: &str,
-    split_by: &str,
+    split_by: &Option<String>,
     expr: &str,
     start_id: usize,
     end_id: usize,
     interval: &CountsInterval,
     max_buckets_id: usize,
 ) -> String {
+    let (getter, split_subquery) = if let Some(split_by) = split_by {
+        let getter = format!("coalesce({}, '(null)') as id", split_by);
+        let query = format!(
+            r#"
+                select {}, count(*) as count
+                from {}
+                where {}
+                and tstamp between ${} and ${}
+                group by 1
+                order by count desc
+                limit ${}
+            "#,
+            getter, table, expr, start_id, end_id, max_buckets_id
+        );
+        (getter, query)
+    } else {
+        let getter = "'value' as id".to_string();
+        let query = format!("select {} limit ${}", getter, max_buckets_id);
+        (getter, query)
+    };
     format!(
         r#"
             select jsonb_object_agg(tstamp, points) as doc from (
@@ -82,15 +102,9 @@ fn split_counts_query(
                     select date_trunc('{}', gen_time) as tstamp, series.id as id, sum(coalesce(subcount, 0)) as count
                     from (select gen_time, id from 
                             generate_series(${}, ${}, '{}'::interval) gen_time,
-                            (select coalesce({}, '(null)') as id, count(*) as count
-                            from {}
-                            where {}
-                            and tstamp between ${} and ${}
-                            group by 1
-                            order by count desc
-                            limit ${}) split
+                            ({}) split
                         ) series
-                    left join (select date_trunc('{}', tstamp) as log_time, coalesce({}, '(null)') as id, count(*) as subcount
+                    left join (select date_trunc('{}', tstamp) as log_time, {}, count(*) as subcount
                             from {}
                             where {}
                             and tstamp between ${} and ${}
@@ -108,50 +122,9 @@ fn split_counts_query(
         start_id,
         end_id,
         &interval.interval,
-        split_by,
-        table,
-        expr,
-        start_id,
-        end_id,
-        max_buckets_id,
+        split_subquery,
         &interval.truncate,
-        split_by,
-        table,
-        expr,
-        start_id,
-        end_id,
-        &interval.interval
-    )
-}
-
-fn counts_query(
-    table: &str,
-    expr: &str,
-    start_id: usize,
-    end_id: usize,
-    interval: &CountsInterval,
-) -> String {
-    format!(
-        r#"
-            select jsonb_object_agg(tstamp, count) as doc from (
-                select date_trunc('{}', gen_time) as tstamp, sum(coalesce(subcount, 0)) as count
-                from generate_series(${}, ${}, '{}'::interval) gen_time
-                left join (select date_trunc('{}', tstamp) as log_time, count(*) as subcount
-                    from {}
-                    where {}
-                    and tstamp between ${} and ${}
-                    group by log_time
-                ) l
-                on log_time between gen_time - '{}'::interval and gen_time
-                group by tstamp
-                order by tstamp
-            ) c
-        "#,
-        &interval.truncate,
-        start_id,
-        end_id,
-        &interval.interval,
-        &interval.truncate,
+        getter,
         table,
         expr,
         start_id,
@@ -210,29 +183,33 @@ impl Response {
             false => 1,
         };
 
-        let (expr, mut query_params) = self.parse_query(&params.query, param_offset).await.unwrap();
+        let (expr, query_params) = self.parse_query(&params.query, param_offset).await.unwrap();
         let param_offset = param_offset + query_params.len();
 
         let db = self.db.get().await.unwrap();
         let interval = CountsInterval::from(params.end - params.start);
-        let counts = if params.has_split_by() {
+        let (getter, query_params) = if params.has_split_by() {
             let (getter, mut getter_params) = self
                 .parse_identifier(&params.split_by.unwrap(), 1)
                 .await
                 .unwrap();
             getter_params.extend(query_params);
-            query_params = getter_params;
+            (Some(getter), getter_params)
+        } else {
+            (None, query_params)
+        };
 
-            let query = split_counts_query(
-                &self.table,
-                &getter,
-                &expr,
-                param_offset,
-                param_offset + 1,
-                &interval,
-                param_offset + 2,
-            );
-            db.query_raw(
+        let query = split_counts_query(
+            &self.table,
+            &getter,
+            &expr,
+            param_offset,
+            param_offset + 1,
+            &interval,
+            param_offset + 2,
+        );
+        let counts = db
+            .query_raw(
                 query.as_str(),
                 query_params
                     .iter()
@@ -242,26 +219,7 @@ impl Response {
                     .chain(std::iter::once::<&Param>(&params.max_buckets.to_owned()))
                     .collect::<Vec<&Param>>(),
             )
-            .await
-        } else {
-            let query = counts_query(
-                &self.table,
-                &expr,
-                param_offset,
-                param_offset + 1,
-                &interval,
-            );
-            db.query_raw(
-                query.as_str(),
-                query_params
-                    .iter()
-                    .map(|e| e as &Param)
-                    .chain(std::iter::once::<&Param>(&params.start.to_owned()))
-                    .chain(std::iter::once::<&Param>(&params.end.to_owned()))
-                    .collect::<Vec<&Param>>(),
-            )
-            .await
-        };
+            .await;
 
         stream::once(async move {
             Ok(format!(
