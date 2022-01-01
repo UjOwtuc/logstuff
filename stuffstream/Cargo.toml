@@ -25,6 +25,6 @@ tokio-postgres-rustls = "0.9"
 rustls = "0.20"
 log = { version = "0.4", features = ["serde"] }
 env_logger = { version = "0.9", default-features = false }
-clap = "2"
+clap = { version = "3", features = ["cargo"] }
 time = { version = "0.3", features = ["serde-human-readable", "macros"] }
 

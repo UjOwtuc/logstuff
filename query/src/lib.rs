@@ -81,7 +81,11 @@ impl Error for ParseError {}
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "parse error")
+        write!(
+            f,
+            "parse error at location {}, expected: {:?}",
+            self.location, self.expected
+        )
     }
 }
 

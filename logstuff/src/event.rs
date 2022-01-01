@@ -173,7 +173,8 @@ pub struct RsyslogdEvent {
     msg: String,
 
     /// complete raw syslog message
-    rawmsg: String,
+    /// currently unused
+    // rawmsg: String,
 
     /// report time of the device sending this message
     #[serde(deserialize_with = "rfc3339")]
@@ -201,7 +202,8 @@ pub struct RsyslogdEvent {
     fromhost_ip: String,
 
     /// raw "PRI" of this message
-    pri: String, // TODO: this is an int
+    /// currently unused
+    // pri: String, // TODO: this is an int
 
     /// numerical severity of the message
     #[serde(with = "severity_serde")]
@@ -219,8 +221,9 @@ pub struct RsyslogdEvent {
     protocol_version: String, // <-- TODO: parse::<u8>()
 
     /// syslog "STRUCTURED-DATA"
-    #[serde(rename = "structured-data")]
-    structured_data: String, // <-- TODO: Value?
+    /// currently unused
+    // #[serde(rename = "structured-data")]
+    // structured_data: String, // <-- TODO: Value?
 
     /// syslog "APP-NAME"
     #[serde(rename = "app-name")]

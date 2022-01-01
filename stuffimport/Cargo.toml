@@ -17,7 +17,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1"
 serde_json = "1"
 serde_yaml = "0.8"
-clap = "2"
+clap = { version = "3", features = ["cargo"] }
 postgres = { version = "0.19", features = ["with-time-0_3", "with-serde_json-1"] }
 postgres-native-tls = "0.5"
 native-tls = "0.2"

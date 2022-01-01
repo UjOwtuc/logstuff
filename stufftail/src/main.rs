@@ -1,4 +1,7 @@
-use clap::{crate_version, App, Arg};
+#[macro_use]
+extern crate clap;
+
+use clap::{App, Arg};
 use postgres::types::ToSql;
 use postgres_native_tls::MakeTlsConnector;
 use std::thread;
@@ -35,20 +38,20 @@ impl Settings {
     fn from_cli_args() -> Self {
         let default_db_config =
             "user=stufftail password=stufftail-password host=localhost port=5432 dbname=log";
-        let matches = App::new("stufftail")
+        let matches = App::new(crate_name!())
             .about("Poll for new entries in logstuff's database.")
             .version(crate_version!())
             .arg(
-                Arg::with_name("db_connection")
-                    .short("d")
+                Arg::new("db_connection")
+                    .short('d')
                     .long("database")
                     .value_name("CONFIG")
                     .help("Database connect config (see https://docs.rs/postgres/0.19.2/postgres/config/struct.Config.html for options)")
                     .takes_value(true)
                     .default_value(default_db_config))
             .arg(
-                Arg::with_name("max_age")
-                    .short("a")
+                Arg::new("max_age")
+                    .short('a')
                     .long("max-age")
                     .value_name("AGE")
                     .help("Maximum age of printed entries (postgres interval)")
@@ -56,8 +59,8 @@ impl Settings {
                     .default_value("1 hour"),
             )
             .arg(
-                Arg::with_name("max_lines")
-                    .short("l")
+                Arg::new("max_lines")
+                    .short('l')
                     .long("max-lines")
                     .value_name("NUMBER")
                     .help("Maximum number of lines to print for each poll")
@@ -69,8 +72,8 @@ impl Settings {
                     }),
             )
             .arg(
-                Arg::with_name("poll_interval_ms")
-                    .short("i")
+                Arg::new("poll_interval_ms")
+                    .short('i')
                     .long("poll-interval")
                     .value_name("MSEC")
                     .help("Poll interval given in milliseconds")
@@ -82,31 +85,31 @@ impl Settings {
                     }),
             )
             .arg(
-                Arg::with_name("query")
-                    .short("q")
+                Arg::new("query")
+                    .short('q')
                     .long("query")
                     .value_name("STRING")
                     .help("logstuff query string")
                     .takes_value(true),
             )
             .arg(
-                Arg::with_name("fields")
-                    .short("f")
+                Arg::new("fields")
+                    .short('f')
                     .long("field")
                     .value_name("NAME")
                     .help("Print field name in output")
                     .takes_value(true)
-                    .multiple(true)
+                    .multiple_occurrences(true)
                     .number_of_values(1),
             )
             .arg(
-                Arg::with_name("ca_cert")
-                    .short("c")
+                Arg::new("ca_cert")
+                    .short('c')
                     .long("ca-cert")
                     .value_name("FILE")
                     .help("CA certificate (bundle) to verify server's cert")
                     .takes_value(true)
-                    .multiple(true)
+                    .multiple_occurrences(true)
                     .number_of_values(1)
             )
             .get_matches();

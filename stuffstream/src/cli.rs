@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{crate_version, App, Arg};
+use clap::{crate_name, crate_version, App, Arg};
 
 #[derive(Debug)]
 pub struct Options {
@@ -13,20 +13,20 @@ pub struct Options {
 
 impl Options {
     pub fn load() -> Options {
-        let matches = App::new("stuffstream")
+        let matches = App::new(crate_name!())
             .version(crate_version!())
             .author("Karsten Borgwaldt <kb@spambri.de>")
             .about("HTTP interface to logstuff's DB")
             .arg(
-                Arg::with_name("dump_config")
-                    .short("d")
+                Arg::new("dump_config")
+                    .short('d')
                     .long("dump-config")
                     .help("Dump config file after loading it to stderr")
                     .takes_value(false),
             )
             .arg(
-                Arg::with_name("config_file")
-                    .short("c")
+                Arg::new("config_file")
+                    .short('c')
                     .long("config")
                     .value_name("FILE")
                     .help("Sets a custom config file")
@@ -34,9 +34,8 @@ impl Options {
             )
             .get_matches();
 
-        let map_path = |path| PathBuf::from(path);
         Options {
-            config_path: matches.value_of("config_file").map(map_path),
+            config_path: matches.value_of("config_file").map(PathBuf::from),
             dump_config: matches.is_present("dump_config"),
         }
     }
