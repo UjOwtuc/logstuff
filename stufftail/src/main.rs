@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-use clap::{App, Arg};
+use clap::{Arg, Command};
 use postgres::types::ToSql;
 use postgres_native_tls::MakeTlsConnector;
 use std::thread;
@@ -38,7 +38,7 @@ impl Settings {
     fn from_cli_args() -> Self {
         let default_db_config =
             "user=stufftail password=stufftail-password host=localhost port=5432 dbname=log";
-        let matches = App::new(crate_name!())
+        let matches = Command::new(crate_name!())
             .about("Poll for new entries in logstuff's database.")
             .version(crate_version!())
             .arg(

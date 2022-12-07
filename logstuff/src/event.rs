@@ -4,7 +4,7 @@ use time::{macros::format_description, OffsetDateTime};
 
 use crate::serde::de::rfc3339;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum SyslogSeverity {
     Emergency = 0,
@@ -37,7 +37,7 @@ impl fmt::Display for SyslogSeverity {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum SyslogFacility {
     Kern = 0,

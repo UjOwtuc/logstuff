@@ -1,6 +1,6 @@
 use serde_json::json;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Identifier(String);
 
 impl Identifier {
@@ -144,14 +144,14 @@ impl From<List> for Value {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum WantedOperandType {
     Json,
     Numeric,
     String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Operator {
     Eq,
     Lt,

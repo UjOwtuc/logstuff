@@ -48,7 +48,7 @@ pub extern "C" fn init_parsers() -> *mut Parsers {
 /// C interface only. Do not use this in rust code.
 #[no_mangle]
 pub unsafe extern "C" fn delete_parsers(parsers: *mut Parsers) {
-    Box::from_raw(parsers);
+    drop(Box::from_raw(parsers));
 }
 
 /// # Safety

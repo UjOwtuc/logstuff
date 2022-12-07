@@ -8,6 +8,6 @@ pub mod de {
     where
         D: serde::de::Deserializer<'de>,
     {
-        return OffsetDateTime::parse(&String::deserialize(d)?, &Rfc3339).map_err(D::Error::custom);
+        OffsetDateTime::parse(&String::deserialize(d)?, &Rfc3339).map_err(D::Error::custom)
     }
 }

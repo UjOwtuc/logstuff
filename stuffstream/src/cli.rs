@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{crate_name, crate_version, App, Arg};
+use clap::{crate_name, crate_version, Arg, Command};
 
 #[derive(Debug)]
 pub struct Options {
@@ -13,7 +13,7 @@ pub struct Options {
 
 impl Options {
     pub fn load() -> Options {
-        let matches = App::new(crate_name!())
+        let matches = Command::new(crate_name!())
             .version(crate_version!())
             .author("Karsten Borgwaldt <kb@spambri.de>")
             .about("HTTP interface to logstuff's DB")

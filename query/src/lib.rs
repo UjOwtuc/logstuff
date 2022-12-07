@@ -65,7 +65,7 @@ impl ExpressionParser {
         if text.is_empty() {
             Ok(("1 = 1".into(), QueryParams::new()))
         } else {
-            let tree = self.parser.parse(&text.to_owned())?;
+            let tree = self.parser.parse(text)?;
             Ok(tree.to_sql_query(param_offset))
         }
     }
