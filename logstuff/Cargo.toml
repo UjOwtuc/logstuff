@@ -15,6 +15,6 @@ native-tls = "0.2"
 time = { version = "0.3", features = ["std", "formatting", "parsing", "serde-human-readable", "macros"] }
 log = "0.4"
 rustls = "0.20"
-rustls-pemfile = "0.2"
+rustls-pemfile = "1"
 webpki-roots = "0.22"
 

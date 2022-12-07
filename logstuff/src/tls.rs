@@ -74,7 +74,7 @@ impl TlsSettings {
                         Item::X509Certificate(cert) => {
                             result.push(Certificate(cert));
                         }
-                        Item::RSAKey(_) | Item::PKCS8Key(_) => {
+                        _ => {
                             warn!("Ignoring private key in trusted certificates");
                         }
                     };
