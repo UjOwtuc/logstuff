@@ -1,7 +1,4 @@
-#[macro_use]
-extern crate clap;
-
-use clap::{Arg, Command};
+use clap::Parser;
 use postgres::types::ToSql;
 use postgres_native_tls::MakeTlsConnector;
 use std::thread;
@@ -22,6 +19,48 @@ where
     }
 }
 
+const DEFAULT_DB_CONFIG: &str =
+    "user=stufftail password=stufftail-password host=localhost port=5432 dbname=log";
+
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct Args {
+    /// Database connect config
+    ///
+    /// see https://docs.rs/postgres/0.19.2/postgres/config/struct.Config.html for options
+    #[arg(short, long = "database", value_name = "CONFIG", default_value = DEFAULT_DB_CONFIG)]
+    db_connection: String,
+
+    /// Maximum age of printed entries (postgres interval)
+    #[arg(short, long, value_name = "AGE", default_value = "1 hour")]
+    max_age: String,
+
+    /// Maximum number of lines to print for each poll
+    #[arg(short = 'l', long, value_name = "NUMBER", default_value_t = 1000)]
+    max_lines: i64,
+
+    /// Poll interval given in milliseconds
+    #[arg(
+        short = 'i',
+        long = "poll-interval",
+        value_name = "MSEC",
+        default_value_t = 500
+    )]
+    poll_interval_ms: u64,
+
+    /// logstuff query string
+    #[arg(short, long)]
+    query: Option<String>,
+
+    /// Print field name in output
+    #[arg(short, long, value_name = "NAME")]
+    field: Vec<String>,
+
+    /// CA certificate (bundle) to verify server's cert
+    #[arg(short, long, value_name = "FILE")]
+    ca_cert: Vec<String>,
+}
+
 #[derive(Default, Debug)]
 struct Settings {
     max_age: String,
@@ -36,125 +75,38 @@ struct Settings {
 
 impl Settings {
     fn from_cli_args() -> Self {
-        let default_db_config =
-            "user=stufftail password=stufftail-password host=localhost port=5432 dbname=log";
-        let matches = Command::new(crate_name!())
-            .about("Poll for new entries in logstuff's database.")
-            .version(crate_version!())
-            .arg(
-                Arg::new("db_connection")
-                    .short('d')
-                    .long("database")
-                    .value_name("CONFIG")
-                    .help("Database connect config (see https://docs.rs/postgres/0.19.2/postgres/config/struct.Config.html for options)")
-                    .takes_value(true)
-                    .default_value(default_db_config))
-            .arg(
-                Arg::new("max_age")
-                    .short('a')
-                    .long("max-age")
-                    .value_name("AGE")
-                    .help("Maximum age of printed entries (postgres interval)")
-                    .takes_value(true)
-                    .default_value("1 hour"),
-            )
-            .arg(
-                Arg::new("max_lines")
-                    .short('l')
-                    .long("max-lines")
-                    .value_name("NUMBER")
-                    .help("Maximum number of lines to print for each poll")
-                    .takes_value(true)
-                    .default_value("1000")
-                    .validator(|val| match val.parse::<usize>() {
-                        Ok(_) => Ok(()),
-                        Err(_) => Err("Not a positive integer".to_string()),
-                    }),
-            )
-            .arg(
-                Arg::new("poll_interval_ms")
-                    .short('i')
-                    .long("poll-interval")
-                    .value_name("MSEC")
-                    .help("Poll interval given in milliseconds")
-                    .takes_value(true)
-                    .default_value("500")
-                    .validator(|val| match val.parse::<usize>() {
-                        Ok(_) => Ok(()),
-                        Err(_) => Err("Not a positive integer".to_string()),
-                    }),
-            )
-            .arg(
-                Arg::new("query")
-                    .short('q')
-                    .long("query")
-                    .value_name("STRING")
-                    .help("logstuff query string")
-                    .takes_value(true),
-            )
-            .arg(
-                Arg::new("fields")
-                    .short('f')
-                    .long("field")
-                    .value_name("NAME")
-                    .help("Print field name in output")
-                    .takes_value(true)
-                    .multiple_occurrences(true)
-                    .number_of_values(1),
-            )
-            .arg(
-                Arg::new("ca_cert")
-                    .short('c')
-                    .long("ca-cert")
-                    .value_name("FILE")
-                    .help("CA certificate (bundle) to verify server's cert")
-                    .takes_value(true)
-                    .multiple_occurrences(true)
-                    .number_of_values(1)
-            )
-            .get_matches();
-
-        let (query_expr, query_params) = match matches.value_of("query") {
+        let matches = Args::parse();
+        let (query_expr, query_params) = match matches.query {
             Some(query) => {
                 let parser = ExpressionParser::default();
-                parser.to_sql(query, 1).unwrap()
+                parser.to_sql(&query, 1).unwrap()
             }
             None => ("1 = 1".to_string(), Vec::new()),
         };
 
-        let fields = match matches.values_of("fields") {
-            Some(iter) => iter.map(|e| e.to_string()).collect(),
-            None => vec![
+        let fields = if matches.field.is_empty() {
+            vec![
                 "hostname".to_string(),
                 "syslogtag".to_string(),
                 "msg".to_string(),
-            ],
+            ]
+        } else {
+            matches.field
         };
 
         let mut tls = TlsSettings::default();
-        if let Some(certs) = matches.values_of("ca_cert") {
-            tls.ca_certs = certs.map(|e| e.to_string()).collect();
+        if !matches.ca_cert.is_empty() {
+            tls.ca_certs = matches.ca_cert.to_vec();
         }
 
         Self {
-            max_age: matches.value_of("max_age").unwrap_or("1 hour").into(),
-            max_lines: matches
-                .value_of("max_lines")
-                .unwrap_or("1000")
-                .parse()
-                .unwrap(),
-            poll_interval_ms: matches
-                .value_of("poll_interval_ms")
-                .unwrap_or("500")
-                .parse()
-                .unwrap(),
+            max_age: matches.max_age,
+            max_lines: matches.max_lines,
+            poll_interval_ms: matches.poll_interval_ms,
             query_expr,
             query_params,
             fields,
-            db_config: matches
-                .value_of("db_connection")
-                .unwrap_or(default_db_config)
-                .to_string(),
+            db_config: matches.db_connection,
             tls,
         }
     }
