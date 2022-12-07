@@ -1,5 +1,4 @@
 //! General types applicable to any Application
-use crate::cli::Options;
 use crate::config::Config;
 
 /// Indicates whether the run loop should halt
@@ -16,7 +15,7 @@ pub trait Application: Sized {
     type Err: ::std::error::Error + 'static;
 
     /// Create a new instance given the options and config
-    fn new(_: Options, _: Config) -> Result<Self, Self::Err>;
+    fn new(_: crate::Args, _: Config) -> Result<Self, Self::Err>;
 
     /// Called repeatedly in the main loop of the application.
     fn run_once(&mut self) -> Result<Stopping, Self::Err>;
@@ -33,7 +32,7 @@ pub trait Application: Sized {
 /// where `run_once` is repeatedly called on the `T`. Between calls, any
 /// arriving signals are checked for and passed to the application via
 /// `received_signal`.
-pub fn run<T>(opts: Options, config: Config) -> Result<(), <T as Application>::Err>
+pub fn run<T>(opts: crate::Args, config: Config) -> Result<(), <T as Application>::Err>
 where
     T: Application,
 {

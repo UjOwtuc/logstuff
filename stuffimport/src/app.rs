@@ -7,7 +7,6 @@ use logstuff::event::{Event, RsyslogdEvent};
 use logstuff::tls;
 
 use crate::application::{Application, Stopping};
-use crate::cli::Options;
 use crate::config::Config;
 use crate::partition::{self, Partitioner};
 
@@ -34,7 +33,7 @@ pub enum Error {
 impl Application for App {
     type Err = Error;
 
-    fn new(_opts: Options, config: Config) -> Result<Self, Self::Err> {
+    fn new(_opts: crate::Args, config: Config) -> Result<Self, Self::Err> {
         env_logger::init();
         let connector = MakeTlsConnector::new(config.tls.connector()?);
         let client = postgres::Client::connect(&config.db_url, connector)?;

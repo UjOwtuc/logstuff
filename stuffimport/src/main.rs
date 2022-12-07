@@ -11,13 +11,26 @@ use std::process::exit;
 
 mod app; // app stuff for *this* program
 mod application; // general app stuff
-mod cli;
 mod config;
 mod partition;
 
 use app::App;
 use application::Application;
+use clap::Parser;
 use config::Config;
+use std::path::PathBuf;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+pub struct Args {
+    /// Sets a custom config file
+    #[arg(short, long = "config-file", value_name = "FILE")]
+    pub config_path: Option<PathBuf>,
+
+    /// Dump config file after loading it to stderr
+    #[arg(short, long)]
+    pub dump_config: bool,
+}
 
 /// The main function
 ///
@@ -32,7 +45,7 @@ fn main() {
 
 fn run<T: Application>() -> Result<(), Box<dyn ::std::error::Error>> {
     // Load command-line options
-    let opts = cli::Options::load();
+    let opts = Args::parse();
 
     // Load configuration
     let config = Config::load(&opts)?;
