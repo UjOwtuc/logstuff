@@ -23,5 +23,5 @@ lalrpop-util = "0.19"
 lalrpop = "0.19"
 
 [dev-dependencies]
-criterion = "0.3"
+criterion = "0.4"
 
