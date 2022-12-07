@@ -2,6 +2,7 @@
 name = "stuffstream"
 version = "0.1.0"
 edition = "2021"
+description = "HTTP interface to logstuff's DB"
 
 [features]
 default = ["humantime"]
@@ -25,6 +26,6 @@ tokio-postgres-rustls = "0.9"
 rustls = "0.20"
 log = { version = "0.4", features = ["serde"] }
 env_logger = { version = "0.10", default-features = false }
-clap = { version = "3", features = ["cargo"] }
+clap = { version = "4", features = ["cargo", "derive"] }
 time = { version = "0.3", features = ["serde-human-readable", "macros"] }
 

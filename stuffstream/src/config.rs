@@ -59,7 +59,7 @@ impl Default for Config {
 
 impl Config {
     /// Load config using path specified in options
-    pub fn load(opts: &crate::cli::Options) -> Result<Config, Box<dyn ::std::error::Error>> {
+    pub fn load(opts: &crate::Args) -> Result<Config, Box<dyn ::std::error::Error>> {
         if let Some(path) = &opts.config_path {
             let reader = File::open(path)?;
             Ok(serde_yaml::from_reader(reader)?)

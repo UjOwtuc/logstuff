@@ -13,10 +13,10 @@ use logstuff::tls;
 use logstuff_query::{ExpressionParser, IdentifierParser};
 
 use crate::application::{Application, Stopping};
-use crate::cli::Options;
 use crate::config::{Config, HttpSettings, TlsClientAuth};
 use crate::counts;
 use crate::events;
+use crate::Args;
 
 pub(crate) type DBPool = bb8::Pool<PostgresConnectionManager<MakeRustlsConnect>>;
 
@@ -43,7 +43,7 @@ pub struct App {
 impl Application for App {
     type Err = Error;
 
-    fn new(_opts: Options, config: Config) -> Result<Self, Self::Err> {
+    fn new(_opts: Args, config: Config) -> Result<Self, Self::Err> {
         env_logger::try_init()?;
         Ok(App {
             auto_restart: config.auto_restart,
