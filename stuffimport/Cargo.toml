@@ -6,13 +6,13 @@ edition = "2021"
 [features]
 default = ["humantime"]
 humantime = ["env_logger/humantime"]
-termcolor = ["env_logger/termcolor"]
-atty = ["env_logger/atty"]
+color = ["env_logger/color"]
+auto-color = ["env_logger/auto-color"]
 
 [dependencies]
 logstuff = { path = "../logstuff" }
 log = { version = "0.4", features = ["serde"] }
-env_logger = { version = "0.9", default-features = false }
+env_logger = { version = "0.10", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1"
 serde_json = "1"
